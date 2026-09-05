@@ -25,6 +25,7 @@ class UploadServer(
     private val onError: (String) -> Unit,
 ) : AutoCloseable {
     private val musicDirectory = File(context.filesDir, "music").apply { mkdirs() }
+    private val libraryRepository = LibraryRepository(context)
     private val running = AtomicBoolean(false)
     private val acceptExecutor = Executors.newSingleThreadExecutor()
     private val clientExecutor = Executors.newFixedThreadPool(2)
@@ -166,7 +167,8 @@ class UploadServer(
                 }
                 output.fd.sync()
             }
-            val duplicate = DuplicateFiles.findMatch(musicDirectory, temporary, digest.digest())
+            val contentHash = digest.digest()
+            val duplicate = DuplicateFiles.findMatch(musicDirectory, temporary, contentHash)
             if (duplicate != null) {
                 send(
                     client,
@@ -179,6 +181,7 @@ class UploadServer(
             if (!temporary.renameTo(destination)) {
                 throw IllegalStateException("Could not finish saving the file")
             }
+            libraryRepository.indexUploaded(destination, contentHash)
             onUploadComplete(destination)
             send(client, 201, "Created", "Saved ${destination.name}")
         } finally {

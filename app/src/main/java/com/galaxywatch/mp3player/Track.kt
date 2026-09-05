@@ -40,7 +40,7 @@ object TrackLibrary {
         .map(::readTrack)
         .toList()
 
-    private fun readTrack(file: File): Track {
+    internal fun readTrack(file: File): Track {
         var title: String? = null
         var artist: String? = null
         var album: String? = null

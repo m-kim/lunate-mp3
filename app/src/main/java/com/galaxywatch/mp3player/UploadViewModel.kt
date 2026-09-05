@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import java.io.File
 import java.security.SecureRandom
+import java.util.concurrent.Executors
 
 data class TransferState(
     val active: Boolean = false,
@@ -21,14 +22,20 @@ data class TransferState(
 
 class UploadViewModel(application: Application) : AndroidViewModel(application) {
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val musicDirectory = File(application.filesDir, "music").apply { mkdirs() }
+    private val countExecutor = Executors.newSingleThreadExecutor()
+    private val libraryRepository = LibraryRepository(application)
     private var server: UploadServer? = null
 
-    var state by mutableStateOf(TransferState(trackCount = countTracks()))
+    var state by mutableStateOf(TransferState())
         private set
+
+    init {
+        refreshTrackCount()
+    }
 
     fun startTransfer() {
         if (server != null) return
+        refreshTrackCount()
         val code = SecureRandom().nextInt(1_000_000).toString().padStart(6, '0')
         state = state.copy(active = true, accessCode = code, error = null, lastMessage = null)
 
@@ -38,10 +45,10 @@ class UploadViewModel(application: Application) : AndroidViewModel(application) 
             onUploadComplete = { file ->
                 mainHandler.post {
                     state = state.copy(
-                        trackCount = countTracks(),
                         lastMessage = "Added ${file.name}",
                         error = null,
                     )
+                    refreshTrackCount()
                 }
             },
             onError = { message -> mainHandler.post { state = state.copy(error = message) } },
@@ -66,16 +73,20 @@ class UploadViewModel(application: Application) : AndroidViewModel(application) 
     fun stopTransfer() {
         server?.close()
         server = null
-        state = TransferState(trackCount = countTracks())
+        state = TransferState(trackCount = state.trackCount)
     }
 
-    private fun countTracks(): Int = DuplicateFiles.unique(
-        musicDirectory.listFiles().orEmpty().filter(SupportedAudio::isSupported),
-    ).size
+    private fun refreshTrackCount() {
+        countExecutor.execute {
+            val count = runCatching { libraryRepository.cachedTrackCount() }.getOrDefault(0)
+            mainHandler.post { state = state.copy(trackCount = count) }
+        }
+    }
 
     override fun onCleared() {
         server?.close()
         server = null
+        countExecutor.shutdownNow()
         super.onCleared()
     }
 }

@@ -36,7 +36,7 @@ data class PlayerUiState(
 class PlayerViewModel(application: Application) : AndroidViewModel(application), Player.Listener {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val scanExecutor = Executors.newSingleThreadExecutor()
-    private val musicDirectory = File(application.filesDir, "music").apply { mkdirs() }
+    private val libraryRepository = LibraryRepository(application)
     private val preferences = application.getSharedPreferences("player", Application.MODE_PRIVATE)
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
@@ -65,7 +65,18 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     fun refreshTracks() {
         state = state.copy(loading = true)
         scanExecutor.execute {
-            val result = runCatching { TrackLibrary.scan(musicDirectory) }
+            val cached = runCatching { libraryRepository.cachedTracks() }.getOrDefault(emptyList())
+            if (cached.isNotEmpty()) {
+                mainHandler.post {
+                    state = state.copy(
+                        tracks = sortTracks(cached, state.sortMode),
+                        loading = false,
+                        error = null,
+                    )
+                }
+            }
+
+            val result = runCatching { libraryRepository.reconcile() }
             mainHandler.post {
                 state = result.fold(
                     onSuccess = {

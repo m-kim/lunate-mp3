@@ -9,6 +9,8 @@ A standalone MP3 and M4A player for Wear OS, designed for the Samsung Galaxy Wat
   recently added, or filename
 - iPod-style hierarchical browsing for albums, artists, songs, and recent
   additions, with native bezel/crown scrolling
+- Room/SQLite library index for immediate cached startup and incremental
+  background reconciliation of new, changed, or removed audio files
 - Background playback through Android Media3 and system media controls
 - Play/pause, previous/next, 15-second seek, shuffle, and repeat controls
 - Temporary Wi-Fi upload page protected by a per-session access code
