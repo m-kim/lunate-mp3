@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -43,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import androidx.wear.compose.material3.MaterialTheme
+import androidx.wear.compose.material3.Icon
 import androidx.wear.compose.material3.Text
 import androidx.wear.compose.foundation.lazy.AutoCenteringParams
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
@@ -421,15 +423,15 @@ private fun NowPlayingScreen(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MediaControl("⏮", "Previous track", onPrevious, controlsEnabled)
+            MediaControl(R.drawable.ic_skip_previous, "Previous track", onPrevious, controlsEnabled)
             MediaControl(
-                if (state.isPlaying) "⏸" else "▶",
+                if (state.isPlaying) R.drawable.ic_pause else R.drawable.ic_play,
                 if (state.isPlaying) "Pause" else "Play",
                 onToggle,
                 controlsEnabled,
                 prominent = true,
             )
-            MediaControl("⏭", "Next track", onNext, controlsEnabled)
+            MediaControl(R.drawable.ic_skip_next, "Next track", onNext, controlsEnabled)
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.12f)))
         Row(
@@ -437,16 +439,20 @@ private fun NowPlayingScreen(
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            MediaControl("↶15", "Back 15 seconds", onBack15, controlsEnabled)
+            MediaControl(R.drawable.ic_rewind, "Back 15 seconds", onBack15, controlsEnabled)
             MediaControl(
-                "🔀",
+                R.drawable.ic_shuffle,
                 if (state.shuffle) "Shuffle on" else "Shuffle off",
                 onShuffle,
                 enabled = controlsEnabled,
                 selected = state.shuffle,
             )
             MediaControl(
-                if (state.repeatMode == Player.REPEAT_MODE_ONE) "🔂" else "🔁",
+                if (state.repeatMode == Player.REPEAT_MODE_ONE) {
+                    R.drawable.ic_repeat_one
+                } else {
+                    R.drawable.ic_repeat
+                },
                 when (state.repeatMode) {
                     Player.REPEAT_MODE_ONE -> "Repeat one"
                     Player.REPEAT_MODE_ALL -> "Repeat all"
@@ -456,7 +462,7 @@ private fun NowPlayingScreen(
                 enabled = controlsEnabled,
                 selected = state.repeatMode != Player.REPEAT_MODE_OFF,
             )
-            MediaControl("↷15", "Forward 15 seconds", onForward15, controlsEnabled)
+            MediaControl(R.drawable.ic_fast_forward, "Forward 15 seconds", onForward15, controlsEnabled)
         }
         TableRow("‹ Library", null, onClick = onBack)
     }
@@ -482,7 +488,7 @@ private fun PlaybackProgress(positionMs: Long, durationMs: Long) {
 
 @Composable
 private fun MediaControl(
-    symbol: String,
+    iconResource: Int,
     description: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
@@ -500,15 +506,15 @@ private fun MediaControl(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Text(
-            symbol,
-            color = when {
+        Icon(
+            painter = painterResource(iconResource),
+            contentDescription = null,
+            tint = when {
                 !enabled -> Color.DarkGray
                 prominent || selected -> Accent
                 else -> Color.White
             },
-            fontSize = if (prominent) 28.sp else 19.sp,
-            maxLines = 1,
+            modifier = Modifier.size(if (prominent) 32.dp else 24.dp),
         )
         if (selected) {
             Box(Modifier.size(4.dp).background(Accent, CircleShape))
