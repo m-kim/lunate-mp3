@@ -10,6 +10,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,8 +41,14 @@ import androidx.media3.common.Player
 import androidx.wear.compose.material3.Button
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.Text
+import androidx.wear.compose.foundation.lazy.AutoCenteringParams
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumnDefaults
+import androidx.wear.compose.foundation.lazy.ScalingLazyListScope
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 
 private enum class AppScreen { HOME, LIBRARY, NOW_PLAYING }
+private enum class LibraryPage { ROOT, ALBUMS, ALBUM_TRACKS, ARTISTS, ARTIST_TRACKS, SONGS, RECENT }
 
 class MainActivity : ComponentActivity() {
     private val uploadViewModel by viewModels<UploadViewModel>()
@@ -175,49 +182,145 @@ private fun LibraryScreen(
     onTrack: (Track) -> Unit,
     onBack: () -> Unit,
 ) {
-    ScreenColumn {
-        Text("Music library", color = Color.White, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-        Spacer(Modifier.height(6.dp))
-        Button(onClick = onSort, modifier = Modifier.fillMaxWidth()) {
-            Text("Sort: ${state.sortMode.label}")
+    var page by remember { mutableStateOf(LibraryPage.ROOT) }
+    var selectedAlbum by remember { mutableStateOf<AlbumGroup?>(null) }
+    var selectedArtist by remember { mutableStateOf<ArtistGroup?>(null) }
+    val albums = remember(state.tracks) { groupAlbums(state.tracks) }
+    val artists = remember(state.tracks) { groupArtists(state.tracks) }
+
+    fun goBack() {
+        page = when (page) {
+            LibraryPage.ALBUM_TRACKS -> LibraryPage.ALBUMS
+            LibraryPage.ARTIST_TRACKS -> LibraryPage.ARTISTS
+            LibraryPage.ROOT -> {
+                onBack()
+                LibraryPage.ROOT
+            }
+            else -> LibraryPage.ROOT
         }
-        Spacer(Modifier.height(8.dp))
-        when {
-            state.loading -> Text("Reading tracks...", color = Color.LightGray)
-            state.tracks.isEmpty() -> Text(
-                "No music yet. Use Transfer music to add MP3 files.",
-                color = Color.LightGray,
-                fontSize = 12.sp,
-                textAlign = TextAlign.Center,
-            )
-            else -> state.tracks.forEach { track ->
-                Button(
-                    onClick = { onTrack(track) },
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(
-                            buildString {
-                                append(track.artist)
-                                if (state.sortMode == SortMode.ALBUM && track.album != "Unknown album") {
-                                    append(" • ")
-                                    append(track.album)
-                                    if (track.trackNumber > 0) append(" • ${track.trackNumber}")
-                                }
-                            },
-                            color = Color.LightGray,
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+    }
+
+    BackHandler(enabled = page != LibraryPage.ROOT) { goBack() }
+
+    when (page) {
+        LibraryPage.ROOT -> WheelList("Music", onBack) {
+            item { WheelButton("Albums", "${albums.size} albums") { page = LibraryPage.ALBUMS } }
+            item { WheelButton("Artists", "${artists.size} artists") { page = LibraryPage.ARTISTS } }
+            item { WheelButton("Songs", "${state.tracks.size} tracks") { page = LibraryPage.SONGS } }
+            item { WheelButton("Recently added", null) { page = LibraryPage.RECENT } }
+        }
+        LibraryPage.ALBUMS -> WheelList("Albums", ::goBack) {
+            albums.forEach { album ->
+                item(key = "${album.albumArtist}\u0000${album.title}") {
+                    WheelButton(album.title, "${album.albumArtist} • ${album.tracks.size} tracks") {
+                        selectedAlbum = album
+                        page = LibraryPage.ALBUM_TRACKS
                     }
-                    Text(formatDuration(track.durationMs), fontSize = 10.sp)
                 }
             }
         }
-        Spacer(Modifier.height(8.dp))
-        Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+        LibraryPage.ALBUM_TRACKS -> WheelList(selectedAlbum?.title ?: "Album", ::goBack) {
+            selectedAlbum?.tracks.orEmpty().forEach { track ->
+                item(key = track.id) {
+                    TrackWheelButton(track, showTrackNumber = true, onTrack = onTrack)
+                }
+            }
+        }
+        LibraryPage.ARTISTS -> WheelList("Artists", ::goBack) {
+            artists.forEach { artist ->
+                item(key = artist.name) {
+                    WheelButton(artist.name, "${artist.tracks.size} tracks") {
+                        selectedArtist = artist
+                        page = LibraryPage.ARTIST_TRACKS
+                    }
+                }
+            }
+        }
+        LibraryPage.ARTIST_TRACKS -> WheelList(selectedArtist?.name ?: "Artist", ::goBack) {
+            selectedArtist?.tracks.orEmpty().forEach { track ->
+                item(key = track.id) { TrackWheelButton(track, showAlbum = true, onTrack = onTrack) }
+            }
+        }
+        LibraryPage.SONGS -> WheelList("Songs", ::goBack) {
+            item { WheelButton("Sort: ${state.sortMode.label}", "Tap to change", onSort) }
+            state.tracks.forEach { track ->
+                item(key = track.id) { TrackWheelButton(track, onTrack = onTrack) }
+            }
+        }
+        LibraryPage.RECENT -> WheelList("Recently added", ::goBack) {
+            sortTracks(state.tracks, SortMode.RECENTLY_ADDED).forEach { track ->
+                item(key = track.id) { TrackWheelButton(track, onTrack = onTrack) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WheelList(
+    title: String,
+    onBack: () -> Unit,
+    content: ScalingLazyListScope.() -> Unit,
+) {
+    val listState = rememberScalingLazyListState()
+    ScalingLazyColumn(
+        modifier = Modifier.fillMaxSize().background(Background),
+        state = listState,
+        contentPadding = PaddingValues(horizontal = 22.dp, vertical = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        autoCentering = AutoCenteringParams(itemIndex = 1),
+        flingBehavior = ScalingLazyColumnDefaults.snapFlingBehavior(state = listState),
+    ) {
+        item {
+            Text(
+                title,
+                color = Accent,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        content()
+        item { WheelButton("‹ Back", null, onBack) }
+    }
+}
+
+@Composable
+private fun WheelButton(primary: String, secondary: String?, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+    ) {
+        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(primary, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+            secondary?.let {
+                Text(
+                    it,
+                    color = Color.LightGray,
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrackWheelButton(
+    track: Track,
+    showTrackNumber: Boolean = false,
+    showAlbum: Boolean = false,
+    onTrack: (Track) -> Unit,
+) {
+    val prefix = if (showTrackNumber && track.trackNumber > 0) "${track.trackNumber}. " else ""
+    val detail = when {
+        showAlbum && track.album != "Unknown album" -> track.album
+        else -> track.artist
+    }
+    WheelButton("$prefix${track.title}", "$detail • ${formatDuration(track.durationMs)}") {
+        onTrack(track)
     }
 }
 

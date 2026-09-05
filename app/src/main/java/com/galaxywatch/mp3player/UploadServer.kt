@@ -210,7 +210,8 @@ class UploadServer(
           <style>
             body{font:16px system-ui,sans-serif;background:#101820;color:#eefbff;max-width:700px;margin:0 auto;padding:32px}
             h1{color:#6ee7ff}.drop{border:2px dashed #6ee7ff;border-radius:20px;padding:48px 20px;text-align:center;cursor:pointer}
-            .drop.over{background:#17323c}#picker{display:none}#code{font:inherit;font-size:20px;letter-spacing:4px;width:9em;padding:8px;border-radius:8px;border:1px solid #6ee7ff;background:#17323c;color:white}li{margin:10px 0}.ok{color:#7df5a5}.bad{color:#ff8e8e}
+            .drop.over{background:#17323c}#picker{display:none}#code{font:inherit;font-size:20px;letter-spacing:4px;width:9em;padding:8px;border-radius:8px;border:1px solid #6ee7ff;background:#17323c;color:white}
+            #status{list-style:none;padding:0}li{margin:10px 0;padding:12px;border-radius:10px;white-space:pre-line}.ok{color:#7df5a5;background:#102a20}.bad{color:#ffb0b0;background:#32191d}
           </style>
         </head>
         <body>
@@ -248,6 +249,20 @@ class UploadServer(
               statusList.appendChild(li);
               return li;
             }
+            function fallbackReason(status) {
+              return ({
+                403: 'The access code is incorrect or has expired.',
+                409: 'An identical file is already stored on the watch.',
+                411: 'The browser did not provide the file size.',
+                413: 'The file exceeds the 1 GB upload limit.',
+                415: 'The file is not an MP3.',
+                507: 'The watch does not have enough free storage.',
+              })[status] ?? `The watch returned HTTP ${'$'}{status}.`;
+            }
+            function showRejected(li, label, reason) {
+              li.textContent = `✗ Not uploaded: ${'$'}{label}\nReason: ${'$'}{reason}`;
+              li.className = 'bad';
+            }
             async function directoryEntries(reader) {
               const entries = [];
               while (true) {
@@ -273,8 +288,7 @@ class UploadServer(
                 const li = document.createElement('li');
                 statusList.appendChild(li);
                 if (!file.name.toLowerCase().endsWith('.mp3')) {
-                  li.textContent = `${'$'}{label}: rejected (only .mp3 files are accepted)`;
-                  li.className = 'bad';
+                  showRejected(li, label, 'The filename does not end in .mp3.');
                   continue;
                 }
                 li.textContent = `Uploading ${'$'}{label}...`;
@@ -282,11 +296,19 @@ class UploadServer(
                   const response = await fetch(`/upload?code=${'$'}{encodeURIComponent(codeInput.value)}&name=${'$'}{encodeURIComponent(file.name)}`, {
                     method: 'POST', headers: {'Content-Type': 'audio/mpeg'}, body: file
                   });
-                  li.textContent = `${'$'}{label}: ${'$'}{await response.text()}`;
-                  li.className = response.ok ? 'ok' : 'bad';
+                  const serverMessage = (await response.text()).trim();
+                  if (response.ok) {
+                    li.textContent = `✓ Uploaded: ${'$'}{label}\n${'$'}{serverMessage || 'Saved on watch'}`;
+                    li.className = 'ok';
+                  } else {
+                    showRejected(li, label, serverMessage || fallbackReason(response.status));
+                  }
                 } catch (error) {
-                  li.textContent = `${'$'}{label}: connection lost`;
-                  li.className = 'bad';
+                  showRejected(
+                    li,
+                    label,
+                    'Connection lost. Keep Transfer mode open and confirm both devices are on the same Wi-Fi.',
+                  );
                 }
               }
             }

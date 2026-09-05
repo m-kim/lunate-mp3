@@ -112,3 +112,29 @@ internal fun sortTracks(tracks: List<Track>, mode: SortMode): List<Track> {
         SortMode.FILE_NAME -> tracks.sortedBy { it.file.name.key() }
     }
 }
+
+internal data class AlbumGroup(
+    val title: String,
+    val albumArtist: String,
+    val tracks: List<Track>,
+)
+
+internal data class ArtistGroup(val name: String, val tracks: List<Track>)
+
+internal fun groupAlbums(tracks: List<Track>): List<AlbumGroup> = tracks
+    .groupBy { it.albumArtist to it.album }
+    .map { (identity, albumTracks) ->
+        AlbumGroup(
+            title = identity.second,
+            albumArtist = identity.first,
+            tracks = sortTracks(albumTracks, SortMode.ALBUM),
+        )
+    }
+    .sortedWith(compareBy({ it.albumArtist.lowercase(Locale.ROOT) }, { it.title.lowercase(Locale.ROOT) }))
+
+internal fun groupArtists(tracks: List<Track>): List<ArtistGroup> = tracks
+    .groupBy { it.artist }
+    .map { (artist, artistTracks) ->
+        ArtistGroup(artist, sortTracks(artistTracks, SortMode.ARTIST))
+    }
+    .sortedBy { it.name.lowercase(Locale.ROOT) }

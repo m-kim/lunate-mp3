@@ -7,6 +7,8 @@ A standalone MP3 player for Wear OS, designed for the Samsung Galaxy Watch Ultra
 - On-watch library with MP3 title, artist, and duration metadata
 - Remembered library sorting by title, artist, album/track, track number,
   recently added, or filename
+- iPod-style hierarchical browsing for albums, artists, songs, and recent
+  additions, with native bezel/crown scrolling
 - Background playback through Android Media3 and system media controls
 - Play/pause, previous/next, 15-second seek, shuffle, and repeat controls
 - Temporary Wi-Fi upload page protected by a per-session access code
@@ -26,6 +28,8 @@ Uploads require the randomly generated six-digit session code shown on the watch
 Exact duplicate files are detected by content. A repeated upload is skipped, and
 older duplicates already on the watch are shown only once without deleting the
 underlying files.
+The transfer page reports a written reason for every rejected file rather than
+using color as the only status indicator.
 
 ## Build requirements
 

@@ -23,6 +23,21 @@ class TrackSortingTest {
         assertEquals(listOf(second, first), sortTracks(listOf(first, second), SortMode.FILE_NAME))
     }
 
+    @Test
+    fun groupsAlbumsAndOrdersTheirTracks() {
+        val albumFirst = first.copy(albumArtist = "Compilation Artist")
+        val albumSecond = second.copy(albumArtist = "Compilation Artist")
+        val otherAlbum = track("other.mp3", "Other", "Artist A", "Other Album", 1, 30)
+            .copy(albumArtist = "Compilation Artist")
+
+        val albums = groupAlbums(listOf(albumFirst, otherAlbum, albumSecond))
+
+        assertEquals(2, albums.size)
+        assertEquals("Album", albums[0].title)
+        assertEquals(listOf(albumSecond, albumFirst), albums[0].tracks)
+        assertEquals("Other Album", albums[1].title)
+    }
+
     private fun track(
         fileName: String,
         title: String,
