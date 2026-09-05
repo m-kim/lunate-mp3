@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -39,8 +42,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
-import androidx.wear.compose.material3.Button
-import androidx.wear.compose.material3.ButtonDefaults
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.Text
 import androidx.wear.compose.foundation.lazy.AutoCenteringParams
@@ -161,15 +162,19 @@ private fun HomeScreen(
             fontSize = 12.sp,
         )
         Spacer(Modifier.height(12.dp))
-        Button(onClick = onLibrary, enabled = state.connected, modifier = Modifier.fillMaxWidth()) {
-            Text(if (state.loading) "Loading..." else "Music library")
-        }
+        Column(modifier = Modifier.fillMaxWidth()) {
+            TableRow(
+                primary = if (state.loading) "Loading…" else "Music library",
+                secondary = if (state.loading) "Reading library" else "Browse albums, artists, and songs",
+                trailing = "›",
+                enabled = !state.loading,
+                onClick = onLibrary,
+            )
         if (state.currentTrackId != null) {
-            Spacer(Modifier.height(6.dp))
-            Button(onClick = onNowPlaying, modifier = Modifier.fillMaxWidth()) { Text("Now playing") }
+                TableRow("Now playing", state.queueLabel, "›", onClick = onNowPlaying)
         }
-        Spacer(Modifier.height(6.dp))
-        Button(onClick = onTransfer, modifier = Modifier.fillMaxWidth()) { Text("Transfer music") }
+            TableRow("Transfer music", "Upload over Wi-Fi", "›", onClick = onTransfer)
+        }
         state.error?.let {
             Spacer(Modifier.height(6.dp))
             Text(it, color = Error, fontSize = 11.sp, textAlign = TextAlign.Center)
@@ -302,23 +307,49 @@ private fun WheelList(
 
 @Composable
 private fun WheelButton(primary: String, secondary: String?, onClick: () -> Unit) {
-    Button(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+    TableRow(primary, secondary, "›", onClick = onClick)
+}
+
+@Composable
+private fun TableRow(
+    primary: String,
+    secondary: String?,
+    trailing: String? = null,
+    enabled: Boolean = true,
+    onClick: () -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
     ) {
-        Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(primary, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-            secondary?.let {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    it,
-                    color = Color.LightGray,
-                    fontSize = 10.sp,
+                    primary,
+                    color = if (enabled) Color.White else Color.Gray,
+                    fontSize = 14.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center,
                 )
+                secondary?.let {
+                    Text(
+                        it,
+                        color = Color.LightGray,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            trailing?.let {
+                Text(it, color = Accent, fontSize = 18.sp, modifier = Modifier.padding(start = 8.dp))
             }
         }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.12f)))
     }
 }
 
@@ -334,9 +365,12 @@ private fun TrackWheelButton(
         showAlbum && track.album != "Unknown album" -> track.album
         else -> track.artist
     }
-    WheelButton("$prefix${track.title}", "$detail • ${formatDuration(track.durationMs)}") {
-        onTrack(track)
-    }
+    TableRow(
+        primary = "$prefix${track.title}",
+        secondary = detail,
+        trailing = formatDuration(track.durationMs),
+        onClick = { onTrack(track) },
+    )
 }
 
 @Composable
@@ -374,39 +408,44 @@ private fun NowPlayingScreen(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        Spacer(Modifier.height(8.dp))
-        Text(
-            "${formatDuration(state.positionMs)} / ${formatDuration(state.durationMs)}",
-            color = Color.LightGray,
-            fontSize = 11.sp,
-        )
-        Spacer(Modifier.height(8.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            SymbolButton("⏮", "Previous track", onPrevious, track != null, Modifier.weight(1f))
-            SymbolButton(
+        Spacer(Modifier.height(7.dp))
+        if (state.playerStarting) {
+            Text("Starting player…", color = Accent, fontSize = 11.sp)
+        } else {
+            PlaybackProgress(state.positionMs, state.durationMs)
+        }
+        Spacer(Modifier.height(7.dp))
+        val controlsEnabled = track != null && !state.playerStarting
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MediaControl("⏮", "Previous track", onPrevious, controlsEnabled)
+            MediaControl(
                 if (state.isPlaying) "⏸" else "▶",
                 if (state.isPlaying) "Pause" else "Play",
                 onToggle,
-                track != null,
-                Modifier.weight(1f),
+                controlsEnabled,
+                prominent = true,
             )
-            SymbolButton("⏭", "Next track", onNext, track != null, Modifier.weight(1f))
+            MediaControl("⏭", "Next track", onNext, controlsEnabled)
         }
-        Spacer(Modifier.height(5.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            SymbolButton("↶15", "Back 15 seconds", onBack15, track != null, Modifier.weight(1f))
-            SymbolButton("↷15", "Forward 15 seconds", onForward15, track != null, Modifier.weight(1f))
-        }
-        Spacer(Modifier.height(5.dp))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            SymbolButton(
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.12f)))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MediaControl("↶15", "Back 15 seconds", onBack15, controlsEnabled)
+            MediaControl(
                 "🔀",
                 if (state.shuffle) "Shuffle on" else "Shuffle off",
                 onShuffle,
+                enabled = controlsEnabled,
                 selected = state.shuffle,
-                modifier = Modifier.weight(1f),
             )
-            SymbolButton(
+            MediaControl(
                 if (state.repeatMode == Player.REPEAT_MODE_ONE) "🔂" else "🔁",
                 when (state.repeatMode) {
                     Player.REPEAT_MODE_ONE -> "Repeat one"
@@ -414,43 +453,66 @@ private fun NowPlayingScreen(
                     else -> "Repeat off"
                 },
                 onRepeat,
+                enabled = controlsEnabled,
                 selected = state.repeatMode != Player.REPEAT_MODE_OFF,
-                modifier = Modifier.weight(1f),
             )
+            MediaControl("↷15", "Forward 15 seconds", onForward15, controlsEnabled)
         }
-        Spacer(Modifier.height(7.dp))
-        Button(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back") }
+        TableRow("‹ Library", null, onClick = onBack)
     }
 }
 
 @Composable
-private fun SymbolButton(
+private fun PlaybackProgress(positionMs: Long, durationMs: Long) {
+    val progress = if (durationMs > 0L) {
+        (positionMs.toFloat() / durationMs.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = 0.18f))) {
+            Box(Modifier.fillMaxWidth(progress).height(3.dp).background(Accent))
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(formatDuration(positionMs), color = Color.LightGray, fontSize = 9.sp)
+            Text(formatDuration(durationMs), color = Color.LightGray, fontSize = 9.sp)
+        }
+    }
+}
+
+@Composable
+private fun MediaControl(
     symbol: String,
     description: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
-    modifier: Modifier = Modifier,
     selected: Boolean = false,
+    prominent: Boolean = false,
 ) {
-    Button(
-        onClick = onClick,
-        enabled = enabled,
-        colors = if (selected) {
-            ButtonDefaults.buttonColors(
-                containerColor = Accent,
-                contentColor = Background,
-                secondaryContentColor = Background,
-                iconColor = Background,
-            )
-        } else {
-            ButtonDefaults.buttonColors()
-        },
-        modifier = modifier.semantics {
+    Column(
+        modifier = Modifier
+            .size(if (prominent) 58.dp else 48.dp)
+            .semantics {
             contentDescription = description
             this.selected = selected
-        },
+            }
+            .clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
     ) {
-        Text(symbol, fontSize = 20.sp, maxLines = 1)
+        Text(
+            symbol,
+            color = when {
+                !enabled -> Color.DarkGray
+                prominent || selected -> Accent
+                else -> Color.White
+            },
+            fontSize = if (prominent) 28.sp else 19.sp,
+            maxLines = 1,
+        )
+        if (selected) {
+            Box(Modifier.size(4.dp).background(Accent, CircleShape))
+        }
     }
 }
 
@@ -484,7 +546,7 @@ private fun TransferScreen(state: TransferState, onDone: () -> Unit, onRetry: ()
             )
             if (state.error != null) {
                 Spacer(Modifier.height(8.dp))
-                Button(onClick = onRetry, modifier = Modifier.fillMaxWidth()) { Text("Try again") }
+                TableRow("Try again", null, "›", onClick = onRetry)
             }
         }
         state.lastMessage?.let {
@@ -498,7 +560,7 @@ private fun TransferScreen(state: TransferState, onDone: () -> Unit, onRetry: ()
         Spacer(Modifier.height(10.dp))
         Text("${state.trackCount} tracks", color = Color.LightGray, fontSize = 12.sp)
         Spacer(Modifier.height(7.dp))
-        Button(onClick = onDone, modifier = Modifier.fillMaxWidth()) { Text("Done") }
+        TableRow("Done", null, "›", onClick = onDone)
     }
 }
 

@@ -31,7 +31,13 @@ data class PlayerUiState(
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     val sortMode: SortMode = SortMode.TITLE,
     val queueLabel: String = "All songs",
+    val playerStarting: Boolean = false,
     val error: String? = null,
+)
+
+private data class PendingPlayback(
+    val track: Track,
+    val queue: List<Track>,
 )
 
 class PlayerViewModel(application: Application) : AndroidViewModel(application), Player.Listener {
@@ -43,6 +49,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     private var controller: MediaController? = null
     private var activeQueueIds: List<String> = emptyList()
     private var activeQueueLabel: String = "All songs"
+    private var pendingPlayback: PendingPlayback? = null
 
     var state by mutableStateOf(
         PlayerUiState(
@@ -60,9 +67,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
         }
     }
 
+    private val delayedControllerConnection = Runnable(::connectController)
+
     init {
-        connectController()
         refreshTracks()
+        mainHandler.postDelayed(delayedControllerConnection, PLAYER_CONNECTION_DELAY_MS)
     }
 
     fun refreshTracks() {
@@ -96,14 +105,33 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     }
 
     fun play(track: Track, queue: List<Track>, queueLabel: String) {
-        val player = controller ?: return
         val playableQueue = queue.distinctBy { it.id }.ifEmpty { listOf(track) }
-        val index = playableQueue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
         activeQueueIds = playableQueue.map { it.id }
         activeQueueLabel = queueLabel
-        player.setMediaItems(playableQueue.map(::mediaItem), index, 0L)
+        state = state.copy(
+            currentTrackId = track.id,
+            queueLabel = queueLabel,
+            playerStarting = controller == null,
+            error = null,
+        )
+
+        val player = controller
+        if (player == null) {
+            pendingPlayback = PendingPlayback(track, playableQueue)
+            mainHandler.removeCallbacks(delayedControllerConnection)
+            connectController()
+            return
+        }
+        startPlayback(player, track, playableQueue)
+    }
+
+    private fun startPlayback(player: Player, track: Track, queue: List<Track>) {
+        pendingPlayback = null
+        val index = queue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+        player.setMediaItems(queue.map(::mediaItem), index, 0L)
         player.prepare()
         player.play()
+        state = state.copy(playerStarting = false)
         updatePlaybackState()
     }
 
@@ -168,6 +196,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     }
 
     private fun connectController() {
+        if (controller != null || controllerFuture != null) return
         val application = getApplication<Application>()
         val token = SessionToken(application, ComponentName(application, PlaybackService::class.java))
         val future = MediaController.Builder(application, token).buildAsync()
@@ -183,10 +212,20 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                                 .map { mediaController.getMediaItemAt(it).mediaId }
                         }
                         state = state.copy(connected = true, error = null)
-                        updatePlaybackState()
+                        val pending = pendingPlayback
+                        if (pending != null) {
+                            startPlayback(mediaController, pending.track, pending.queue)
+                        } else {
+                            updatePlaybackState()
+                        }
                     }
                     .onFailure { error ->
-                        state = state.copy(error = error.message ?: "Could not connect to playback")
+                        controllerFuture = null
+                        pendingPlayback = null
+                        state = state.copy(
+                            playerStarting = false,
+                            error = error.message ?: "Could not connect to playback",
+                        )
                     }
             },
             application.mainExecutor,
@@ -220,6 +259,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
             shuffle = player.shuffleModeEnabled,
             repeatMode = player.repeatMode,
             queueLabel = activeQueueLabel,
+            playerStarting = false,
         )
         mainHandler.removeCallbacks(progressUpdate)
         if (player.isPlaying) mainHandler.postDelayed(progressUpdate, 500L)
@@ -233,5 +273,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
         controllerFuture?.let { MediaController.releaseFuture(it) }
         controllerFuture = null
         super.onCleared()
+    }
+
+    private companion object {
+        const val PLAYER_CONNECTION_DELAY_MS = 750L
     }
 }
