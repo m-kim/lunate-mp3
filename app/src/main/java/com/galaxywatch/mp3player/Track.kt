@@ -33,7 +33,7 @@ object TrackLibrary {
         .listFiles()
         .orEmpty()
         .asSequence()
-        .filter { it.isFile && it.extension.equals("mp3", ignoreCase = true) }
+        .filter(SupportedAudio::isSupported)
         .toList(),
     )
         .asSequence()

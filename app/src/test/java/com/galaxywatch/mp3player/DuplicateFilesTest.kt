@@ -36,6 +36,20 @@ class DuplicateFilesTest {
     }
 
     @Test
+    fun detectsIdenticalContentAcrossMp3AndM4aNames() {
+        val directory = temporaryFolder.newFolder("mixed-music")
+        val original = directory.resolve("Song.mp3").apply { writeBytes(byteArrayOf(4, 5, 6)) }
+        val upload = directory.resolve(".Song.m4a.uploading").apply {
+            writeBytes(byteArrayOf(4, 5, 6))
+        }
+
+        assertEquals(
+            original.absolutePath,
+            DuplicateFiles.findMatch(directory, upload, DuplicateFiles.sha256(upload))?.absolutePath,
+        )
+    }
+
+    @Test
     fun collapsesExistingExactDuplicatesWithoutDeletingThem() {
         val first = temporaryFolder.newFile("First.mp3").apply { writeText("same") }
         val second = temporaryFolder.newFile("Second.mp3").apply { writeText("same") }

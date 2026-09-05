@@ -1,10 +1,10 @@
 # Wrist MP3
 
-A standalone MP3 player for Wear OS, designed for the Samsung Galaxy Watch Ultra. Music is stored and played directly on the watch and does not require a phone.
+A standalone MP3 and M4A player for Wear OS, designed for the Samsung Galaxy Watch Ultra. Music is stored and played directly on the watch and does not require a phone.
 
 ## Features
 
-- On-watch library with MP3 title, artist, and duration metadata
+- On-watch library with MP3 and DRM-free M4A title, artist, and duration metadata
 - Remembered library sorting by title, artist, album/track, track number,
   recently added, or filename
 - iPod-style hierarchical browsing for albums, artists, songs, and recent
@@ -20,8 +20,8 @@ The app provides a temporary Wi-Fi upload page:
 1. Connect the watch and a computer to the same Wi-Fi network.
 2. Open **Transfer music** on the watch.
 3. Enter the displayed address in the computer's browser.
-4. Drop one or more MP3 files or folders onto the page. Dropped folders are
-   searched recursively, and non-MP3 files are listed as rejected.
+4. Drop one or more MP3/M4A files or folders onto the page. Dropped folders are
+   searched recursively, and unsupported files are listed as rejected.
 5. Tap **Done** on the watch to shut down the upload server.
 
 Uploads require the randomly generated six-digit session code shown on the watch. Files are written to a temporary file first, limited to 1 GB each, and saved in the app's private `music` directory without overwriting existing tracks.

@@ -18,6 +18,17 @@ class UploadRulesTest {
 
     @Test
     fun limitsFileNameLength() {
-        assertTrue(UploadRules.sanitizeFileName("a".repeat(300) + ".mp3").length <= 180)
+        val sanitized = UploadRules.sanitizeFileName("a".repeat(300) + ".mp3")
+
+        assertTrue(sanitized.length <= 180)
+        assertTrue(sanitized.endsWith(".mp3"))
+    }
+
+    @Test
+    fun identifiesSupportedAudioExtensionsWithoutAcceptingExtraSuffixes() {
+        assertTrue(SupportedAudio.hasSupportedExtension("Album/Song.MP3"))
+        assertTrue(SupportedAudio.hasSupportedExtension("Album/Song.M4A"))
+        assertTrue(!SupportedAudio.hasSupportedExtension("Song.mp3.download"))
+        assertTrue(!SupportedAudio.hasSupportedExtension("Song.m4p"))
     }
 }

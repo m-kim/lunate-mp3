@@ -69,9 +69,9 @@ class UploadViewModel(application: Application) : AndroidViewModel(application) 
         state = TransferState(trackCount = countTracks())
     }
 
-    private fun countTracks(): Int = musicDirectory.listFiles()
-        ?.count { it.isFile && it.extension.equals("mp3", ignoreCase = true) }
-        ?: 0
+    private fun countTracks(): Int = DuplicateFiles.unique(
+        musicDirectory.listFiles().orEmpty().filter(SupportedAudio::isSupported),
+    ).size
 
     override fun onCleared() {
         server?.close()

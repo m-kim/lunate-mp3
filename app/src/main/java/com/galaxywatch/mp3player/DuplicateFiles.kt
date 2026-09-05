@@ -9,9 +9,8 @@ internal object DuplicateFiles {
         .orEmpty()
         .asSequence()
         .filter {
-            it.isFile &&
                 it != candidate &&
-                it.extension.equals("mp3", ignoreCase = true) &&
+                SupportedAudio.isSupported(it) &&
                 it.length() == candidate.length()
         }
         .firstOrNull { sha256(it).contentEquals(candidateHash) }

@@ -120,18 +120,18 @@ class UploadServer(
         }
 
         val originalName = query["name"].orEmpty()
-        if (!UploadRules.hasMp3Extension(originalName)) {
+        if (!SupportedAudio.hasSupportedExtension(originalName)) {
             send(
                 client,
                 415,
                 "Unsupported Media Type",
-                "Rejected ${originalName.ifBlank { "unnamed file" }}: only .mp3 files are accepted",
+                "Rejected ${originalName.ifBlank { "unnamed file" }}: only .mp3 and .m4a files are accepted",
             )
             return
         }
 
         val safeName = UploadRules.sanitizeFileName(originalName)
-        if (safeName.isBlank() || !safeName.endsWith(".mp3", ignoreCase = true)) {
+        if (safeName.isBlank() || !SupportedAudio.hasSupportedExtension(safeName)) {
             send(client, 415, "Unsupported Media Type", "Rejected $originalName: invalid filename")
             return
         }
@@ -218,8 +218,8 @@ class UploadServer(
           <h1>Wrist MP3</h1>
           <p>Keep this page open and leave Transfer mode open on the watch.</p>
           <p><label>Access code<br><input id="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label></p>
-          <div id="drop" class="drop">Drop MP3 files here<br><small>or click to choose files</small></div>
-          <input id="picker" type="file" accept="audio/mpeg,.mp3" multiple>
+          <div id="drop" class="drop">Drop MP3 or M4A files here<br><small>or click to choose files</small></div>
+          <input id="picker" type="file" accept="audio/mpeg,audio/mp4,audio/x-m4a,.mp3,.m4a" multiple>
           <ul id="status"></ul>
           <script>
             const drop = document.querySelector('#drop');
@@ -255,7 +255,7 @@ class UploadServer(
                 409: 'An identical file is already stored on the watch.',
                 411: 'The browser did not provide the file size.',
                 413: 'The file exceeds the 1 GB upload limit.',
-                415: 'The file is not an MP3.',
+                415: 'The file is not a supported MP3 or M4A audio file.',
                 507: 'The watch does not have enough free storage.',
               })[status] ?? `The watch returned HTTP ${'$'}{status}.`;
             }
@@ -287,14 +287,17 @@ class UploadServer(
                 const label = selected.label ?? file.webkitRelativePath ?? file.name;
                 const li = document.createElement('li');
                 statusList.appendChild(li);
-                if (!file.name.toLowerCase().endsWith('.mp3')) {
-                  showRejected(li, label, 'The filename does not end in .mp3.');
+                const extension = file.name.toLowerCase().split('.').pop();
+                if (!['mp3', 'm4a'].includes(extension)) {
+                  showRejected(li, label, 'The filename does not end in .mp3 or .m4a.');
                   continue;
                 }
                 li.textContent = `Uploading ${'$'}{label}...`;
                 try {
                   const response = await fetch(`/upload?code=${'$'}{encodeURIComponent(codeInput.value)}&name=${'$'}{encodeURIComponent(file.name)}`, {
-                    method: 'POST', headers: {'Content-Type': 'audio/mpeg'}, body: file
+                    method: 'POST',
+                    headers: {'Content-Type': extension === 'm4a' ? 'audio/mp4' : 'audio/mpeg'},
+                    body: file
                   });
                   const serverMessage = (await response.text()).trim();
                   if (response.ok) {
@@ -398,11 +401,6 @@ class UploadServer(
 }
 
 internal object UploadRules {
-    fun hasMp3Extension(name: String): Boolean = name
-        .substringAfterLast('/')
-        .substringAfterLast('\\')
-        .endsWith(".mp3", ignoreCase = true)
-
     fun sanitizeFileName(name: String): String {
         val cleaned = name
             .substringAfterLast('/')
