@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -39,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.media3.common.Player
 import androidx.wear.compose.material3.Button
+import androidx.wear.compose.material3.ButtonDefaults
 import androidx.wear.compose.material3.MaterialTheme
 import androidx.wear.compose.material3.Text
 import androidx.wear.compose.foundation.lazy.AutoCenteringParams
@@ -82,8 +84,8 @@ class MainActivity : ComponentActivity() {
                         AppScreen.LIBRARY -> LibraryScreen(
                             state = playerState,
                             onSort = playerViewModel::cycleSort,
-                            onTrack = { track ->
-                                playerViewModel.play(track)
+                            onTrack = { track, queue, queueLabel ->
+                                playerViewModel.play(track, queue, queueLabel)
                                 screen = AppScreen.NOW_PLAYING
                             },
                             onBack = { screen = AppScreen.HOME },
@@ -179,7 +181,7 @@ private fun HomeScreen(
 private fun LibraryScreen(
     state: PlayerUiState,
     onSort: () -> Unit,
-    onTrack: (Track) -> Unit,
+    onTrack: (Track, List<Track>, String) -> Unit,
     onBack: () -> Unit,
 ) {
     var page by remember { mutableStateOf(LibraryPage.ROOT) }
@@ -220,9 +222,12 @@ private fun LibraryScreen(
             }
         }
         LibraryPage.ALBUM_TRACKS -> WheelList(selectedAlbum?.title ?: "Album", ::goBack) {
-            selectedAlbum?.tracks.orEmpty().forEach { track ->
+            val album = selectedAlbum
+            album?.tracks.orEmpty().forEach { track ->
                 item(key = track.id) {
-                    TrackWheelButton(track, showTrackNumber = true, onTrack = onTrack)
+                    TrackWheelButton(track, showTrackNumber = true) {
+                        onTrack(it, album?.tracks.orEmpty(), album?.title ?: "Album")
+                    }
                 }
             }
         }
@@ -237,19 +242,29 @@ private fun LibraryScreen(
             }
         }
         LibraryPage.ARTIST_TRACKS -> WheelList(selectedArtist?.name ?: "Artist", ::goBack) {
-            selectedArtist?.tracks.orEmpty().forEach { track ->
-                item(key = track.id) { TrackWheelButton(track, showAlbum = true, onTrack = onTrack) }
+            val artist = selectedArtist
+            artist?.tracks.orEmpty().forEach { track ->
+                item(key = track.id) {
+                    TrackWheelButton(track, showAlbum = true) {
+                        onTrack(it, artist?.tracks.orEmpty(), artist?.name ?: "Artist")
+                    }
+                }
             }
         }
         LibraryPage.SONGS -> WheelList("Songs", ::goBack) {
             item { WheelButton("Sort: ${state.sortMode.label}", "Tap to change", onSort) }
             state.tracks.forEach { track ->
-                item(key = track.id) { TrackWheelButton(track, onTrack = onTrack) }
+                item(key = track.id) {
+                    TrackWheelButton(track) { onTrack(it, state.tracks, "All songs") }
+                }
             }
         }
         LibraryPage.RECENT -> WheelList("Recently added", ::goBack) {
-            sortTracks(state.tracks, SortMode.RECENTLY_ADDED).forEach { track ->
-                item(key = track.id) { TrackWheelButton(track, onTrack = onTrack) }
+            val recentTracks = sortTracks(state.tracks, SortMode.RECENTLY_ADDED)
+            recentTracks.forEach { track ->
+                item(key = track.id) {
+                    TrackWheelButton(track) { onTrack(it, recentTracks, "Recently added") }
+                }
             }
         }
     }
@@ -350,6 +365,15 @@ private fun NowPlayingScreen(
             textAlign = TextAlign.Center,
         )
         Text(track?.artist.orEmpty(), color = Color.LightGray, fontSize = 11.sp, maxLines = 1)
+        if (track != null) {
+            Text(
+                "Queue: ${state.queueLabel}",
+                color = Color.LightGray,
+                fontSize = 9.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         Spacer(Modifier.height(8.dp))
         Text(
             "${formatDuration(state.positionMs)} / ${formatDuration(state.durationMs)}",
@@ -379,6 +403,7 @@ private fun NowPlayingScreen(
                 "🔀",
                 if (state.shuffle) "Shuffle on" else "Shuffle off",
                 onShuffle,
+                selected = state.shuffle,
                 modifier = Modifier.weight(1f),
             )
             SymbolButton(
@@ -389,6 +414,7 @@ private fun NowPlayingScreen(
                     else -> "Repeat off"
                 },
                 onRepeat,
+                selected = state.repeatMode != Player.REPEAT_MODE_OFF,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -404,11 +430,25 @@ private fun SymbolButton(
     onClick: () -> Unit,
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
+    selected: Boolean = false,
 ) {
     Button(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.semantics { contentDescription = description },
+        colors = if (selected) {
+            ButtonDefaults.buttonColors(
+                containerColor = Accent,
+                contentColor = Background,
+                secondaryContentColor = Background,
+                iconColor = Background,
+            )
+        } else {
+            ButtonDefaults.buttonColors()
+        },
+        modifier = modifier.semantics {
+            contentDescription = description
+            this.selected = selected
+        },
     ) {
         Text(symbol, fontSize = 20.sp, maxLines = 1)
     }

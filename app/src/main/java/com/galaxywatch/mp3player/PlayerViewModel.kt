@@ -30,6 +30,7 @@ data class PlayerUiState(
     val shuffle: Boolean = false,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
     val sortMode: SortMode = SortMode.TITLE,
+    val queueLabel: String = "All songs",
     val error: String? = null,
 )
 
@@ -40,6 +41,8 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     private val preferences = application.getSharedPreferences("player", Application.MODE_PRIVATE)
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
+    private var activeQueueIds: List<String> = emptyList()
+    private var activeQueueLabel: String = "All songs"
 
     var state by mutableStateOf(
         PlayerUiState(
@@ -92,11 +95,13 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
         }
     }
 
-    fun play(track: Track) {
+    fun play(track: Track, queue: List<Track>, queueLabel: String) {
         val player = controller ?: return
-        val items = state.tracks.map(::mediaItem)
-        val index = state.tracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
-        player.setMediaItems(items, index, 0L)
+        val playableQueue = queue.distinctBy { it.id }.ifEmpty { listOf(track) }
+        val index = playableQueue.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+        activeQueueIds = playableQueue.map { it.id }
+        activeQueueLabel = queueLabel
+        player.setMediaItems(playableQueue.map(::mediaItem), index, 0L)
         player.prepare()
         player.play()
         updatePlaybackState()
@@ -143,6 +148,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
         state = state.copy(sortMode = newMode, tracks = sortedTracks)
         preferences.edit().putString("sort_mode", newMode.name).apply()
 
+        val libraryIds = sortedTracks.map { it.id }
+        val queueContainsWholeLibrary = activeQueueIds.size == libraryIds.size &&
+            activeQueueIds.toSet() == libraryIds.toSet()
+        if (!queueContainsWholeLibrary) return
+
         controller?.let { player ->
             val currentId = player.currentMediaItem?.mediaId ?: return@let
             val currentIndex = sortedTracks.indexOfFirst { it.id == currentId }
@@ -150,6 +160,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
 
             val position = player.currentPosition.coerceAtLeast(0L)
             val shouldPlay = player.playWhenReady
+            activeQueueIds = libraryIds
             player.setMediaItems(sortedTracks.map(::mediaItem), currentIndex, position)
             player.prepare()
             player.playWhenReady = shouldPlay
@@ -167,6 +178,10 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
                     .onSuccess { mediaController ->
                         controller = mediaController
                         mediaController.addListener(this)
+                        if (activeQueueIds.isEmpty()) {
+                            activeQueueIds = (0 until mediaController.mediaItemCount)
+                                .map { mediaController.getMediaItemAt(it).mediaId }
+                        }
                         state = state.copy(connected = true, error = null)
                         updatePlaybackState()
                     }
@@ -204,6 +219,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
             durationMs = player.duration.takeIf { it > 0 && it != C.TIME_UNSET } ?: 0L,
             shuffle = player.shuffleModeEnabled,
             repeatMode = player.repeatMode,
+            queueLabel = activeQueueLabel,
         )
         mainHandler.removeCallbacks(progressUpdate)
         if (player.isPlaying) mainHandler.postDelayed(progressUpdate, 500L)
