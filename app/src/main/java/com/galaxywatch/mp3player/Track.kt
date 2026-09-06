@@ -221,3 +221,14 @@ internal fun groupArtists(tracks: List<Track>): List<ArtistGroup> = tracks
         ArtistGroup(artist, sortTracks(artistTracks, SortMode.ARTIST))
     }
     .sortedBy { it.name.lowercase(Locale.ROOT) }
+
+internal fun groupAlbumArtists(tracks: List<Track>): List<ArtistGroup> = tracks
+    .groupBy { ArtistNames.identity(it.albumArtist) }
+    .map { (_, artistTracks) ->
+        val canonicalTracks = ArtistNames.canonicalize(artistTracks, emptyMap())
+        ArtistGroup(
+            canonicalTracks.first().albumArtist,
+            sortTracks(canonicalTracks, SortMode.ALBUM),
+        )
+    }
+    .sortedBy { it.name.lowercase(Locale.ROOT) }

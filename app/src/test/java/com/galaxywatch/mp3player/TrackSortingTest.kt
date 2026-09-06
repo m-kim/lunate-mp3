@@ -38,6 +38,17 @@ class TrackSortingTest {
         assertEquals("Other Album", albums[1].title)
     }
 
+    @Test
+    fun groupsAlbumArtistsSeparatelyFromTrackArtists() {
+        val compilationTrack = first.copy(artist = "Guest Artist", albumArtist = "Various Artists")
+        val secondCompilationTrack = second.copy(albumArtist = "Various Artists")
+
+        val albumArtists = groupAlbumArtists(listOf(compilationTrack, secondCompilationTrack))
+
+        assertEquals(listOf("Various Artists"), albumArtists.map { it.name })
+        assertEquals(2, albumArtists.single().tracks.size)
+    }
+
     private fun track(
         fileName: String,
         title: String,

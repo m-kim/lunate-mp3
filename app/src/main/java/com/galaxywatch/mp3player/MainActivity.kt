@@ -54,7 +54,18 @@ import androidx.wear.compose.foundation.lazy.ScalingLazyListScope
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 
 private enum class AppScreen { HOME, LIBRARY, NOW_PLAYING }
-private enum class LibraryPage { ROOT, ALBUMS, ALBUM_TRACKS, ARTISTS, ARTIST_TRACKS, SONGS, RECENT }
+private enum class LibraryPage {
+    ROOT,
+    ALBUM_ARTISTS,
+    ALBUMS,
+    ALBUM_TRACKS,
+    ARTISTS,
+    ARTIST_OVERVIEW,
+    ARTIST_ALBUMS,
+    ARTIST_TRACKS,
+    SONGS,
+    RECENT,
+}
 
 class MainActivity : ComponentActivity() {
     private val uploadViewModel by viewModels<UploadViewModel>()
@@ -196,14 +207,21 @@ private fun LibraryScreen(
 ) {
     var page by remember { mutableStateOf(LibraryPage.ROOT) }
     var selectedAlbum by remember { mutableStateOf<AlbumGroup?>(null) }
+    var selectedAlbumArtist by remember { mutableStateOf<ArtistGroup?>(null) }
     var selectedArtist by remember { mutableStateOf<ArtistGroup?>(null) }
+    var albumBackPage by remember { mutableStateOf(LibraryPage.ALBUMS) }
     val albums = remember(state.tracks) { groupAlbums(state.tracks) }
+    val albumArtists = remember(state.tracks) { groupAlbumArtists(state.tracks) }
     val artists = remember(state.tracks) { groupArtists(state.tracks) }
 
     fun goBack() {
         page = when (page) {
-            LibraryPage.ALBUM_TRACKS -> LibraryPage.ALBUMS
-            LibraryPage.ARTIST_TRACKS -> LibraryPage.ARTISTS
+            LibraryPage.ALBUM_ARTISTS -> LibraryPage.ROOT
+            LibraryPage.ALBUMS -> LibraryPage.ALBUM_ARTISTS
+            LibraryPage.ALBUM_TRACKS -> albumBackPage
+            LibraryPage.ARTISTS -> LibraryPage.ROOT
+            LibraryPage.ARTIST_OVERVIEW -> LibraryPage.ARTISTS
+            LibraryPage.ARTIST_ALBUMS, LibraryPage.ARTIST_TRACKS -> LibraryPage.ARTIST_OVERVIEW
             LibraryPage.ROOT -> {
                 onBack()
                 LibraryPage.ROOT
@@ -216,16 +234,34 @@ private fun LibraryScreen(
 
     when (page) {
         LibraryPage.ROOT -> WheelList("Music", onBack) {
-            item { WheelButton("Albums", "${albums.size} albums") { page = LibraryPage.ALBUMS } }
+            item { WheelButton("Albums", "${albums.size} albums") { page = LibraryPage.ALBUM_ARTISTS } }
             item { WheelButton("Artists", "${artists.size} artists") { page = LibraryPage.ARTISTS } }
             item { WheelButton("Songs", "${state.tracks.size} tracks") { page = LibraryPage.SONGS } }
             item { WheelButton("Recently added", null) { page = LibraryPage.RECENT } }
         }
-        LibraryPage.ALBUMS -> WheelList("Albums", ::goBack) {
-            albums.forEach { album ->
+        LibraryPage.ALBUM_ARTISTS -> WheelList("Albums by artist", ::goBack) {
+            albumArtists.forEach { artist ->
+                val artistAlbumCount = albums.count {
+                    ArtistNames.identity(it.albumArtist) == ArtistNames.identity(artist.name)
+                }
+                item(key = artist.name) {
+                    WheelButton(artist.name, "$artistAlbumCount albums") {
+                        selectedAlbumArtist = artist
+                        page = LibraryPage.ALBUMS
+                    }
+                }
+            }
+        }
+        LibraryPage.ALBUMS -> WheelList(selectedAlbumArtist?.name ?: "Albums", ::goBack) {
+            val artistAlbums = albums.filter {
+                ArtistNames.identity(it.albumArtist) ==
+                    ArtistNames.identity(selectedAlbumArtist?.name.orEmpty())
+            }
+            artistAlbums.forEach { album ->
                 item(key = "${album.albumArtist}\u0000${album.title}") {
-                    WheelButton(album.title, "${album.albumArtist} • ${album.tracks.size} tracks") {
+                    WheelButton(album.title, "${album.tracks.size} tracks") {
                         selectedAlbum = album
+                        albumBackPage = LibraryPage.ALBUMS
                         page = LibraryPage.ALBUM_TRACKS
                     }
                 }
@@ -246,12 +282,46 @@ private fun LibraryScreen(
                 item(key = artist.name) {
                     WheelButton(artist.name, "${artist.tracks.size} tracks") {
                         selectedArtist = artist
-                        page = LibraryPage.ARTIST_TRACKS
+                        page = LibraryPage.ARTIST_OVERVIEW
                     }
                 }
             }
         }
-        LibraryPage.ARTIST_TRACKS -> WheelList(selectedArtist?.name ?: "Artist", ::goBack) {
+        LibraryPage.ARTIST_OVERVIEW -> WheelList(selectedArtist?.name ?: "Artist", ::goBack) {
+            val artist = selectedArtist
+            val artistAlbums = albums.filter { album ->
+                album.tracks.any {
+                    ArtistNames.identity(it.artist) == ArtistNames.identity(artist?.name.orEmpty())
+                }
+            }
+            item {
+                WheelButton("All songs", "${artist?.tracks.orEmpty().size} tracks") {
+                    page = LibraryPage.ARTIST_TRACKS
+                }
+            }
+            item {
+                WheelButton("Albums", "${artistAlbums.size} albums") {
+                    page = LibraryPage.ARTIST_ALBUMS
+                }
+            }
+        }
+        LibraryPage.ARTIST_ALBUMS -> WheelList("${selectedArtist?.name ?: "Artist"} albums", ::goBack) {
+            val artist = selectedArtist
+            albums.filter { album ->
+                album.tracks.any {
+                    ArtistNames.identity(it.artist) == ArtistNames.identity(artist?.name.orEmpty())
+                }
+            }.forEach { album ->
+                item(key = "${album.albumArtist}\u0000${album.title}") {
+                    WheelButton(album.title, "${album.albumArtist} • ${album.tracks.size} tracks") {
+                        selectedAlbum = album
+                        albumBackPage = LibraryPage.ARTIST_ALBUMS
+                        page = LibraryPage.ALBUM_TRACKS
+                    }
+                }
+            }
+        }
+        LibraryPage.ARTIST_TRACKS -> WheelList("${selectedArtist?.name ?: "Artist"} songs", ::goBack) {
             val artist = selectedArtist
             artist?.tracks.orEmpty().forEach { track ->
                 item(key = track.id) {
