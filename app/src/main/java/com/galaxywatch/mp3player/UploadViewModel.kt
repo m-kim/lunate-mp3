@@ -16,6 +16,8 @@ data class TransferState(
     val address: String? = null,
     val accessCode: String = "",
     val trackCount: Int = 0,
+    val musicBytes: Long? = null,
+    val availableForMusicBytes: Long? = null,
     val lastMessage: String? = null,
     val error: String? = null,
 )
@@ -30,12 +32,12 @@ class UploadViewModel(application: Application) : AndroidViewModel(application) 
         private set
 
     init {
-        refreshTrackCount()
+        refreshTransferStats()
     }
 
     fun startTransfer() {
         if (server != null) return
-        refreshTrackCount()
+        refreshTransferStats()
         val code = SecureRandom().nextInt(1_000_000).toString().padStart(6, '0')
         state = state.copy(active = true, accessCode = code, error = null, lastMessage = null)
 
@@ -48,7 +50,7 @@ class UploadViewModel(application: Application) : AndroidViewModel(application) 
                         lastMessage = "Added ${file.name}",
                         error = null,
                     )
-                    refreshTrackCount()
+                    refreshTransferStats()
                 }
             },
             onError = { message -> mainHandler.post { state = state.copy(error = message) } },
@@ -73,13 +75,27 @@ class UploadViewModel(application: Application) : AndroidViewModel(application) 
     fun stopTransfer() {
         server?.close()
         server = null
-        state = TransferState(trackCount = state.trackCount)
+        state = TransferState(
+            trackCount = state.trackCount,
+            musicBytes = state.musicBytes,
+            availableForMusicBytes = state.availableForMusicBytes,
+        )
     }
 
-    private fun refreshTrackCount() {
+    private fun refreshTransferStats() {
         countExecutor.execute {
             val count = runCatching { libraryRepository.cachedTrackCount() }.getOrDefault(0)
-            mainHandler.post { state = state.copy(trackCount = count) }
+            val storage = runCatching {
+                StorageStatus.read(File(getApplication<Application>().filesDir, "music"))
+            }.getOrNull()
+            mainHandler.post {
+                state = state.copy(
+                    trackCount = count,
+                    musicBytes = storage?.musicBytes ?: state.musicBytes,
+                    availableForMusicBytes = storage?.availableForMusicBytes
+                        ?: state.availableForMusicBytes,
+                )
+            }
         }
     }
 

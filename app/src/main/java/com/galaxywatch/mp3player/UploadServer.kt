@@ -92,6 +92,9 @@ class UploadServer(
                         requestParts[0] == "GET" && requestParts[1].substringBefore('?') == "/" -> {
                             send(client, 200, "OK", uploadPage(), "text/html; charset=utf-8")
                         }
+                        requestParts[0] == "GET" && requestParts[1].substringBefore('?') == "/storage" -> {
+                            send(client, 200, "OK", storageJson(), "application/json; charset=utf-8")
+                        }
                         requestParts[0] == "POST" && requestParts[1].substringBefore('?') == "/upload" -> {
                             receiveUpload(client, input, requestParts[1], headers)
                         }
@@ -146,8 +149,14 @@ class UploadServer(
             send(client, 413, "Content Too Large", "File exceeds the 1 GB limit")
             return
         }
-        if (musicDirectory.usableSpace < contentLength + MIN_FREE_SPACE_BYTES) {
-            send(client, 507, "Insufficient Storage", "Not enough free space on the watch")
+        val availableForMusic = StorageStatus.read(musicDirectory).availableForMusicBytes
+        if (availableForMusic < contentLength) {
+            send(
+                client,
+                507,
+                "Insufficient Storage",
+                "Not enough free space: ${formatBytes(availableForMusic)} available for music",
+            )
             return
         }
 
@@ -215,11 +224,17 @@ class UploadServer(
             h1{color:#6ee7ff}.drop{border:2px dashed #6ee7ff;border-radius:20px;padding:48px 20px;text-align:center;cursor:pointer}
             .drop.over{background:#17323c}#picker{display:none}#code{font:inherit;font-size:20px;letter-spacing:4px;width:9em;padding:8px;border-radius:8px;border:1px solid #6ee7ff;background:#17323c;color:white}
             #status{list-style:none;padding:0}li{margin:10px 0;padding:12px;border-radius:10px;white-space:pre-line}.ok{color:#7df5a5;background:#102a20}.bad{color:#ffb0b0;background:#32191d}
+            .storage{background:#17323c;border-radius:12px;padding:14px;margin:18px 0}.meter{height:8px;background:#31434b;border-radius:8px;overflow:hidden;margin:9px 0}.meter span{display:block;height:100%;background:#6ee7ff;width:0}.storage small{color:#b9cbd1}
           </style>
         </head>
         <body>
           <h1>Wrist MP3</h1>
           <p>Keep this page open and leave Transfer mode open on the watch.</p>
+          <section class="storage">
+            <strong id="space">Checking storage…</strong>
+            <div class="meter"><span id="storageBar"></span></div>
+            <small id="storageDetail"></small>
+          </section>
           <p><label>Access code<br><input id="code" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label></p>
           <div id="drop" class="drop">Drop MP3 or M4A files here<br><small>or click to choose files</small></div>
           <input id="picker" type="file" accept="audio/mpeg,audio/mp4,audio/x-m4a,.mp3,.m4a" multiple>
@@ -229,6 +244,9 @@ class UploadServer(
             const picker = document.querySelector('#picker');
             const codeInput = document.querySelector('#code');
             const statusList = document.querySelector('#status');
+            const space = document.querySelector('#space');
+            const storageBar = document.querySelector('#storageBar');
+            const storageDetail = document.querySelector('#storageDetail');
             drop.onclick = () => picker.click();
             drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
             drop.ondragleave = () => drop.classList.remove('over');
@@ -265,6 +283,31 @@ class UploadServer(
             function showRejected(li, label, reason) {
               li.textContent = `✗ Not uploaded: ${'$'}{label}\nReason: ${'$'}{reason}`;
               li.className = 'bad';
+            }
+            function formatBytes(bytes) {
+              if (bytes < 1024) return `${'$'}{bytes} B`;
+              const units = ['KB', 'MB', 'GB', 'TB'];
+              let value = bytes / 1024;
+              let unit = units[0];
+              for (let i = 1; i < units.length && value >= 1024; i++) {
+                value /= 1024;
+                unit = units[i];
+              }
+              return `${'$'}{value >= 10 ? value.toFixed(1) : value.toFixed(2)} ${'$'}{unit}`;
+            }
+            async function updateStorage() {
+              try {
+                const response = await fetch('/storage', {cache: 'no-store'});
+                const storage = await response.json();
+                space.textContent = `${'$'}{formatBytes(storage.availableForMusicBytes)} available for music`;
+                storageDetail.textContent = `Wrist MP3 uses ${'$'}{formatBytes(storage.musicBytes)} · ${'$'}{formatBytes(storage.reserveBytes)} safety reserve`;
+                const used = storage.totalBytes > 0
+                  ? 100 * (storage.totalBytes - storage.availableBytes) / storage.totalBytes
+                  : 0;
+                storageBar.style.width = `${'$'}{Math.max(0, Math.min(100, used))}%`;
+              } catch (_) {
+                space.textContent = 'Storage status unavailable';
+              }
             }
             async function directoryEntries(reader) {
               const entries = [];
@@ -316,12 +359,19 @@ class UploadServer(
                     'Connection lost. Keep Transfer mode open and confirm both devices are on the same Wi-Fi.',
                   );
                 }
+                await updateStorage();
               }
             }
+            updateStorage();
           </script>
         </body>
         </html>
     """.trimIndent()
+
+    private fun storageJson(): String {
+        val storage = StorageStatus.read(musicDirectory)
+        return """{"totalBytes":${storage.totalBytes},"availableBytes":${storage.availableBytes},"availableForMusicBytes":${storage.availableForMusicBytes},"musicBytes":${storage.musicBytes},"reserveBytes":${storage.reserveBytes}}"""
+    }
 
     private fun address(): String? {
         val ip = localIpv4Address() ?: return null
@@ -341,7 +391,15 @@ class UploadServer(
         private const val SOCKET_TIMEOUT_MS = 30_000
         private const val MAX_HEADER_LINE_BYTES = 8 * 1024
         private const val MAX_FILE_BYTES = 1024L * 1024L * 1024L
-        private const val MIN_FREE_SPACE_BYTES = 32L * 1024L * 1024L
+
+        private fun formatBytes(bytes: Long): String {
+            val megabytes = bytes.toDouble() / (1024.0 * 1024.0)
+            return if (megabytes >= 1024.0) {
+                "%.1f GB".format(Locale.US, megabytes / 1024.0)
+            } else {
+                "%.0f MB".format(Locale.US, megabytes)
+            }
+        }
 
         private fun readHttpLine(input: BufferedInputStream): String {
             val bytes = ArrayList<Byte>()

@@ -567,6 +567,16 @@ private fun TransferScreen(state: TransferState, onDone: () -> Unit, onRetry: ()
         }
         Spacer(Modifier.height(10.dp))
         Text("${state.trackCount} tracks", color = Color.LightGray, fontSize = 12.sp)
+        state.availableForMusicBytes?.let { available ->
+            Text(
+                "${formatStorage(available)} available for music",
+                color = Accent,
+                fontSize = 12.sp,
+            )
+        }
+        state.musicBytes?.let { used ->
+            Text("Wrist MP3 uses ${formatStorage(used)}", color = Color.LightGray, fontSize = 10.sp)
+        }
         Spacer(Modifier.height(7.dp))
         TableRow("Done", null, "›", onClick = onDone)
     }
@@ -576,4 +586,13 @@ private fun formatDuration(durationMs: Long): String {
     if (durationMs <= 0L) return "--:--"
     val totalSeconds = durationMs / 1_000L
     return "%d:%02d".format(totalSeconds / 60L, totalSeconds % 60L)
+}
+
+private fun formatStorage(bytes: Long): String {
+    val megabytes = bytes.toDouble() / (1024.0 * 1024.0)
+    return if (megabytes >= 1024.0) {
+        "%.1f GB".format(megabytes / 1024.0)
+    } else {
+        "%.0f MB".format(megabytes)
+    }
 }

@@ -31,4 +31,10 @@ class UploadRulesTest {
         assertTrue(!SupportedAudio.hasSupportedExtension("Song.mp3.download"))
         assertTrue(!SupportedAudio.hasSupportedExtension("Song.m4p"))
     }
+
+    @Test
+    fun storageReserveIsExcludedFromUploadCapacity() {
+        assertEquals(800L, StorageStatus.uploadCapacity(1_000L, 200L))
+        assertEquals(0L, StorageStatus.uploadCapacity(100L, 200L))
+    }
 }
