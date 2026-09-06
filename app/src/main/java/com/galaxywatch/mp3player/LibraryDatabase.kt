@@ -39,6 +39,16 @@ internal data class ArtistAliasEntity(
     val canonicalName: String,
 )
 
+@Entity(
+    tableName = "album_aliases",
+    primaryKeys = ["normalizedAlbumArtist", "normalizedAlias"],
+)
+internal data class AlbumAliasEntity(
+    val normalizedAlbumArtist: String,
+    val normalizedAlias: String,
+    val canonicalName: String,
+)
+
 @Dao
 internal interface TrackDao {
     @Query("SELECT * FROM tracks")
@@ -64,9 +74,19 @@ internal interface TrackDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     fun upsertArtistAlias(alias: ArtistAliasEntity)
+
+    @Query("SELECT * FROM album_aliases")
+    fun albumAliases(): List<AlbumAliasEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsertAlbumAlias(alias: AlbumAliasEntity)
 }
 
-@Database(entities = [TrackEntity::class, ArtistAliasEntity::class], version = 2, exportSchema = false)
+@Database(
+    entities = [TrackEntity::class, ArtistAliasEntity::class, AlbumAliasEntity::class],
+    version = 3,
+    exportSchema = false,
+)
 internal abstract class LibraryDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
 
@@ -79,13 +99,22 @@ internal abstract class LibraryDatabase : RoomDatabase() {
                 context.applicationContext,
                 LibraryDatabase::class.java,
                 "music-library.db",
-            ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2, MIGRATION_2_3).build().also { instance = it }
         }
 
         private val MIGRATION_1_2 = object : Migration(1, 2) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL(
                     "CREATE TABLE IF NOT EXISTS `artist_aliases` (`normalizedAlias` TEXT NOT NULL, `canonicalName` TEXT NOT NULL, PRIMARY KEY(`normalizedAlias`))",
+                )
+            }
+        }
+
+
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `album_aliases` (`normalizedAlbumArtist` TEXT NOT NULL, `normalizedAlias` TEXT NOT NULL, `canonicalName` TEXT NOT NULL, PRIMARY KEY(`normalizedAlbumArtist`, `normalizedAlias`))",
                 )
             }
         }

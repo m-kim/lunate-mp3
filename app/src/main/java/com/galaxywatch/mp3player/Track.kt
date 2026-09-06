@@ -143,7 +143,7 @@ internal object ArtistNames {
             .groupBy(::identity)
         val canonicalByIdentity = appearances.mapValues { (identity, values) ->
             aliases[identity]?.let(::display)?.takeIf(String::isNotBlank)
-                ?: preferredDisplay(values)
+                ?: canonicalDisplay(values)
         }
 
         fun canonical(value: String): String {
@@ -161,7 +161,7 @@ internal object ArtistNames {
         }
     }
 
-    private fun preferredDisplay(values: List<String>): String = values
+    internal fun canonicalDisplay(values: List<String>): String = values
         .groupingBy { it }
         .eachCount()
         .entries
@@ -177,6 +177,30 @@ internal object ArtistNames {
         .drop(1)
         .withIndex()
         .count { (index, character) -> character.isUpperCase() && value[index].isLetter() }
+}
+
+internal data class AlbumAliasKey(val albumArtist: String, val album: String)
+
+internal object AlbumNames {
+    fun canonicalize(tracks: List<Track>, aliases: Map<AlbumAliasKey, String>): List<Track> {
+        val albumsByIdentity = tracks.groupBy { track ->
+            AlbumAliasKey(
+                ArtistNames.identity(track.albumArtist),
+                ArtistNames.identity(track.album),
+            )
+        }
+        val canonicalByIdentity = albumsByIdentity.mapValues { (identity, albumTracks) ->
+            aliases[identity]?.let(ArtistNames::display)?.takeIf(String::isNotBlank)
+                ?: ArtistNames.canonicalDisplay(albumTracks.map { ArtistNames.display(it.album) })
+        }
+        return tracks.map { track ->
+            val identity = AlbumAliasKey(
+                ArtistNames.identity(track.albumArtist),
+                ArtistNames.identity(track.album),
+            )
+            track.copy(album = canonicalByIdentity[identity] ?: ArtistNames.display(track.album))
+        }
+    }
 }
 
 internal fun groupAlbums(tracks: List<Track>): List<AlbumGroup> = tracks

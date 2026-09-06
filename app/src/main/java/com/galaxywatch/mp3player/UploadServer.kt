@@ -98,8 +98,14 @@ class UploadServer(
                         requestParts[0] == "GET" && requestParts[1].substringBefore('?') == "/artists" -> {
                             send(client, 200, "OK", artistsJson(), "application/json; charset=utf-8")
                         }
+                        requestParts[0] == "GET" && requestParts[1].substringBefore('?') == "/albums" -> {
+                            send(client, 200, "OK", albumsJson(), "application/json; charset=utf-8")
+                        }
                         requestParts[0] == "POST" && requestParts[1].substringBefore('?') == "/artist-alias" -> {
                             saveArtistAlias(client, requestParts[1])
+                        }
+                        requestParts[0] == "POST" && requestParts[1].substringBefore('?') == "/album-alias" -> {
+                            saveAlbumAlias(client, requestParts[1])
                         }
                         requestParts[0] == "POST" && requestParts[1].substringBefore('?') == "/upload" -> {
                             receiveUpload(client, input, requestParts[1], headers)
@@ -253,6 +259,11 @@ class UploadServer(
             <label>Display as<input id="aliasTo" maxlength="160" placeholder="Correct artist name"></label>
             <button id="saveAlias" type="button">Save artist correction</button>
             <div id="cleanupResult" class="cleanup-result"></div>
+            <h3>Album cleanup</h3>
+            <label>Album to correct<select id="albumFrom"><option>Loading albums…</option></select></label>
+            <label>Display as<input id="albumTo" maxlength="200" placeholder="Correct album name"></label>
+            <button id="saveAlbumAlias" type="button">Save album correction</button>
+            <div id="albumCleanupResult" class="cleanup-result"></div>
           </section>
           <script>
             const drop = document.querySelector('#drop');
@@ -266,6 +277,10 @@ class UploadServer(
             const aliasTo = document.querySelector('#aliasTo');
             const saveAlias = document.querySelector('#saveAlias');
             const cleanupResult = document.querySelector('#cleanupResult');
+            const albumFrom = document.querySelector('#albumFrom');
+            const albumTo = document.querySelector('#albumTo');
+            const saveAlbumAlias = document.querySelector('#saveAlbumAlias');
+            const albumCleanupResult = document.querySelector('#albumCleanupResult');
             drop.onclick = () => picker.click();
             drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
             drop.ondragleave = () => drop.classList.remove('over');
@@ -360,6 +375,40 @@ class UploadServer(
               cleanupResult.style.color = response.ok ? '#7df5a5' : '#ffb0b0';
               if (response.ok) await updateArtists();
             };
+            async function updateAlbums() {
+              try {
+                const response = await fetch('/albums', {cache: 'no-store'});
+                const albums = await response.json();
+                albumFrom.textContent = '';
+                for (const album of albums) {
+                  const option = document.createElement('option');
+                  option.value = album.name;
+                  option.dataset.artist = album.artist;
+                  option.textContent = `${'$'}{album.artist} — ${'$'}{album.name} (${'$'}{album.count})`;
+                  albumFrom.appendChild(option);
+                }
+                if (!albums.length) {
+                  const option = document.createElement('option');
+                  option.textContent = 'No albums found';
+                  albumFrom.appendChild(option);
+                }
+              } catch (_) {
+                albumFrom.innerHTML = '<option>Album list unavailable</option>';
+              }
+            }
+            albumFrom.onchange = () => { albumTo.value = albumFrom.value; };
+            saveAlbumAlias.onclick = async () => {
+              albumCleanupResult.textContent = 'Saving…';
+              const selected = albumFrom.selectedOptions[0];
+              const response = await fetch(
+                `/album-alias?code=${'$'}{encodeURIComponent(codeInput.value)}&artist=${'$'}{encodeURIComponent(selected?.dataset.artist || '')}&from=${'$'}{encodeURIComponent(albumFrom.value)}&to=${'$'}{encodeURIComponent(albumTo.value)}`,
+                {method: 'POST'},
+              );
+              const message = (await response.text()).trim();
+              albumCleanupResult.textContent = response.ok ? `✓ ${'$'}{message}` : `✗ ${'$'}{message || fallbackReason(response.status)}`;
+              albumCleanupResult.style.color = response.ok ? '#7df5a5' : '#ffb0b0';
+              if (response.ok) await updateAlbums();
+            };
             async function directoryEntries(reader) {
               const entries = [];
               while (true) {
@@ -415,6 +464,7 @@ class UploadServer(
             }
             updateStorage();
             updateArtists();
+            updateAlbums();
           </script>
         </body>
         </html>
@@ -430,6 +480,13 @@ class UploadServer(
         postfix = "]",
     ) { (name, count) -> "{\"name\":${jsonString(name)},\"count\":$count}" }
 
+    private fun albumsJson(): String = libraryRepository.albumNames().joinToString(
+        prefix = "[",
+        postfix = "]",
+    ) { (artist, name, count) ->
+        "{\"artist\":${jsonString(artist)},\"name\":${jsonString(name)},\"count\":$count}"
+    }
+
     private fun saveArtistAlias(client: Socket, target: String) {
         val query = parseQuery(target.substringAfter('?', ""))
         if (query["code"] != accessCode) {
@@ -444,6 +501,29 @@ class UploadServer(
             }
             .onFailure { error ->
                 send(client, 400, "Bad Request", error.message ?: "Could not save artist correction")
+            }
+    }
+
+    private fun saveAlbumAlias(client: Socket, target: String) {
+        val query = parseQuery(target.substringAfter('?', ""))
+        if (query["code"] != accessCode) {
+            send(client, 403, "Forbidden", "Incorrect access code")
+            return
+        }
+        val artist = query["artist"].orEmpty()
+        val alias = query["from"].orEmpty()
+        val canonical = query["to"].orEmpty()
+        runCatching { libraryRepository.saveAlbumAlias(artist, alias, canonical) }
+            .onSuccess {
+                send(
+                    client,
+                    200,
+                    "OK",
+                    "$artist — $alias will display as ${ArtistNames.display(canonical)}",
+                )
+            }
+            .onFailure { error ->
+                send(client, 400, "Bad Request", error.message ?: "Could not save album correction")
             }
     }
 

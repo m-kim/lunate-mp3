@@ -67,6 +67,24 @@ internal class LibraryRepository(context: Context) {
         dao.upsertArtistAlias(ArtistAliasEntity(normalizedAlias, canonical))
     }
 
+    fun albumNames(): List<Triple<String, String, Int>> = canonicalize(dao.visible().map(::toTrack))
+        .groupingBy { it.albumArtist to it.album }
+        .eachCount()
+        .entries
+        .sortedWith(compareBy({ it.key.first.lowercase() }, { it.key.second.lowercase() }))
+        .map { (identity, count) -> Triple(identity.first, identity.second, count) }
+
+    fun saveAlbumAlias(albumArtist: String, alias: String, canonicalName: String) {
+        val normalizedArtist = ArtistNames.identity(albumArtist)
+        val normalizedAlias = ArtistNames.identity(alias)
+        val canonical = ArtistNames.display(canonicalName)
+        require(normalizedArtist.isNotBlank() && normalizedAlias.isNotBlank() && canonical.isNotBlank()) {
+            "Album artist and album names cannot be blank"
+        }
+        require(canonical.length <= 200) { "Album name is too long" }
+        dao.upsertAlbumAlias(AlbumAliasEntity(normalizedArtist, normalizedAlias, canonical))
+    }
+
     private fun TrackEntity.matches(file: File): Boolean =
         fileSize == file.length() && lastModified == file.lastModified()
 
@@ -99,8 +117,12 @@ internal class LibraryRepository(context: Context) {
     )
 
     private fun canonicalize(tracks: List<Track>): List<Track> {
-        val aliases = dao.artistAliases().associate { it.normalizedAlias to it.canonicalName }
-        return ArtistNames.canonicalize(tracks, aliases)
+        val artistAliases = dao.artistAliases().associate { it.normalizedAlias to it.canonicalName }
+        val artistTracks = ArtistNames.canonicalize(tracks, artistAliases)
+        val albumAliases = dao.albumAliases().associate {
+            AlbumAliasKey(it.normalizedAlbumArtist, it.normalizedAlias) to it.canonicalName
+        }
+        return AlbumNames.canonicalize(artistTracks, albumAliases)
     }
 
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
