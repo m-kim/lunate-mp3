@@ -2,6 +2,7 @@ package com.galaxywatch.mp3player
 
 import android.app.Application
 import android.content.ComponentName
+import android.media.AudioManager
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -29,6 +30,9 @@ data class PlayerUiState(
     val durationMs: Long = 0L,
     val shuffle: Boolean = false,
     val repeatMode: Int = Player.REPEAT_MODE_OFF,
+    val volumeLevel: Int = 0,
+    val volumeMax: Int = 0,
+    val volumeAdjustable: Boolean = true,
     val sortMode: SortMode = SortMode.TITLE,
     val queueLabel: String = "All songs",
     val playerStarting: Boolean = false,
@@ -46,6 +50,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     private val libraryRepository = LibraryRepository(application)
     private val preferences = application.getSharedPreferences("player", Application.MODE_PRIVATE)
     private val playbackStateStore = PlaybackStateStore(application)
+    private val audioManager = application.getSystemService(AudioManager::class.java)
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
     private var activeQueueIds: List<String> = emptyList()
@@ -57,6 +62,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
             sortMode = SortMode.values().firstOrNull {
                 it.name == preferences.getString("sort_mode", null)
             } ?: SortMode.TITLE,
+            volumeLevel = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC),
+            volumeMax = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
+            volumeAdjustable = !audioManager.isVolumeFixed,
         ),
     )
         private set
@@ -171,6 +179,27 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
         }
     }
 
+    fun volumeDown() = adjustMusicVolume(AudioManager.ADJUST_LOWER)
+
+    fun volumeUp() = adjustMusicVolume(AudioManager.ADJUST_RAISE)
+
+    private fun adjustMusicVolume(direction: Int) {
+        runCatching {
+            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, direction, 0)
+        }.onFailure { error ->
+            state = state.copy(error = error.message ?: "Could not change volume")
+        }
+        updateVolumeState()
+    }
+
+    private fun updateVolumeState() {
+        state = state.copy(
+            volumeLevel = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC),
+            volumeMax = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
+            volumeAdjustable = !audioManager.isVolumeFixed,
+        )
+    }
+
     fun cycleSort() {
         val modes = SortMode.values()
         val newMode = modes[(state.sortMode.ordinal + 1) % modes.size]
@@ -262,6 +291,9 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
             repeatMode = player.repeatMode,
             queueLabel = activeQueueLabel,
             playerStarting = false,
+            volumeLevel = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC),
+            volumeMax = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC),
+            volumeAdjustable = !audioManager.isVolumeFixed,
         )
         mainHandler.removeCallbacks(progressUpdate)
         if (player.isPlaying) mainHandler.postDelayed(progressUpdate, 500L)

@@ -103,6 +103,8 @@ class MainActivity : ComponentActivity() {
                             onForward15 = { playerViewModel.seekBy(15_000L) },
                             onShuffle = playerViewModel::toggleShuffle,
                             onRepeat = playerViewModel::cycleRepeat,
+                            onVolumeDown = playerViewModel::volumeDown,
+                            onVolumeUp = playerViewModel::volumeUp,
                             onBack = { screen = AppScreen.HOME },
                         )
                     }
@@ -386,6 +388,8 @@ private fun NowPlayingScreen(
     onForward15: () -> Unit,
     onShuffle: () -> Unit,
     onRepeat: () -> Unit,
+    onVolumeDown: () -> Unit,
+    onVolumeUp: () -> Unit,
     onBack: () -> Unit,
 ) {
     val track = state.tracks.firstOrNull { it.id == state.currentTrackId }
@@ -436,6 +440,14 @@ private fun NowPlayingScreen(
             MediaControl(R.drawable.ic_skip_next, "Next track", onNext, controlsEnabled)
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.12f)))
+        VolumeControls(
+            level = state.volumeLevel,
+            maximum = state.volumeMax,
+            enabled = state.volumeAdjustable,
+            onVolumeDown = onVolumeDown,
+            onVolumeUp = onVolumeUp,
+        )
+        Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = 0.12f)))
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
@@ -467,6 +479,37 @@ private fun NowPlayingScreen(
             MediaControl(R.drawable.ic_fast_forward, "Forward 15 seconds", onForward15, controlsEnabled)
         }
         TableRow("‹ Library", null, onClick = onBack)
+    }
+}
+
+@Composable
+private fun VolumeControls(
+    level: Int,
+    maximum: Int,
+    enabled: Boolean,
+    onVolumeDown: () -> Unit,
+    onVolumeUp: () -> Unit,
+) {
+    val progress = if (maximum > 0) {
+        (level.toFloat() / maximum.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        MediaControl(R.drawable.ic_volume_down, "Volume down", onVolumeDown, enabled)
+        Column(
+            modifier = Modifier.weight(1f),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("Volume ${(progress * 100).toInt()}%", color = Color.LightGray, fontSize = 9.sp)
+            Box(Modifier.fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = 0.18f))) {
+                Box(Modifier.fillMaxWidth(progress).height(3.dp).background(Accent))
+            }
+        }
+        MediaControl(R.drawable.ic_volume_up, "Volume up", onVolumeUp, enabled)
     }
 }
 
