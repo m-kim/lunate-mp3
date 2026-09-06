@@ -95,6 +95,12 @@ class UploadServer(
                         requestParts[0] == "GET" && requestParts[1].substringBefore('?') == "/storage" -> {
                             send(client, 200, "OK", storageJson(), "application/json; charset=utf-8")
                         }
+                        requestParts[0] == "GET" && requestParts[1].substringBefore('?') == "/artists" -> {
+                            send(client, 200, "OK", artistsJson(), "application/json; charset=utf-8")
+                        }
+                        requestParts[0] == "POST" && requestParts[1].substringBefore('?') == "/artist-alias" -> {
+                            saveArtistAlias(client, requestParts[1])
+                        }
                         requestParts[0] == "POST" && requestParts[1].substringBefore('?') == "/upload" -> {
                             receiveUpload(client, input, requestParts[1], headers)
                         }
@@ -225,6 +231,7 @@ class UploadServer(
             .drop.over{background:#17323c}#picker{display:none}#code{font:inherit;font-size:20px;letter-spacing:4px;width:9em;padding:8px;border-radius:8px;border:1px solid #6ee7ff;background:#17323c;color:white}
             #status{list-style:none;padding:0}li{margin:10px 0;padding:12px;border-radius:10px;white-space:pre-line}.ok{color:#7df5a5;background:#102a20}.bad{color:#ffb0b0;background:#32191d}
             .storage{background:#17323c;border-radius:12px;padding:14px;margin:18px 0}.meter{height:8px;background:#31434b;border-radius:8px;overflow:hidden;margin:9px 0}.meter span{display:block;height:100%;background:#6ee7ff;width:0}.storage small{color:#b9cbd1}
+            .cleanup{margin-top:28px;padding-top:16px;border-top:1px solid #31434b}.cleanup select,.cleanup input,.cleanup button{box-sizing:border-box;width:100%;font:inherit;margin:5px 0;padding:10px;border-radius:8px;border:1px solid #526973;background:#17323c;color:white}.cleanup button{border-color:#6ee7ff;color:#6ee7ff;cursor:pointer}.cleanup-result{min-height:1.4em;color:#7df5a5}
           </style>
         </head>
         <body>
@@ -239,6 +246,14 @@ class UploadServer(
           <div id="drop" class="drop">Drop MP3 or M4A files here<br><small>or click to choose files</small></div>
           <input id="picker" type="file" accept="audio/mpeg,audio/mp4,audio/x-m4a,.mp3,.m4a" multiple>
           <ul id="status"></ul>
+          <section class="cleanup">
+            <h2>Artist cleanup</h2>
+            <p>Merge an incorrect artist spelling into the name you want displayed. Audio files are not changed.</p>
+            <label>Artist to correct<select id="aliasFrom"><option>Loading artists…</option></select></label>
+            <label>Display as<input id="aliasTo" maxlength="160" placeholder="Correct artist name"></label>
+            <button id="saveAlias" type="button">Save artist correction</button>
+            <div id="cleanupResult" class="cleanup-result"></div>
+          </section>
           <script>
             const drop = document.querySelector('#drop');
             const picker = document.querySelector('#picker');
@@ -247,6 +262,10 @@ class UploadServer(
             const space = document.querySelector('#space');
             const storageBar = document.querySelector('#storageBar');
             const storageDetail = document.querySelector('#storageDetail');
+            const aliasFrom = document.querySelector('#aliasFrom');
+            const aliasTo = document.querySelector('#aliasTo');
+            const saveAlias = document.querySelector('#saveAlias');
+            const cleanupResult = document.querySelector('#cleanupResult');
             drop.onclick = () => picker.click();
             drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
             drop.ondragleave = () => drop.classList.remove('over');
@@ -309,6 +328,38 @@ class UploadServer(
                 space.textContent = 'Storage status unavailable';
               }
             }
+            async function updateArtists() {
+              try {
+                const response = await fetch('/artists', {cache: 'no-store'});
+                const artists = await response.json();
+                aliasFrom.textContent = '';
+                for (const artist of artists) {
+                  const option = document.createElement('option');
+                  option.value = artist.name;
+                  option.textContent = `${'$'}{artist.name} (${'$'}{artist.count})`;
+                  aliasFrom.appendChild(option);
+                }
+                if (!artists.length) {
+                  const option = document.createElement('option');
+                  option.textContent = 'No artists found';
+                  aliasFrom.appendChild(option);
+                }
+              } catch (_) {
+                aliasFrom.innerHTML = '<option>Artist list unavailable</option>';
+              }
+            }
+            aliasFrom.onchange = () => { aliasTo.value = aliasFrom.value; };
+            saveAlias.onclick = async () => {
+              cleanupResult.textContent = 'Saving…';
+              const response = await fetch(
+                `/artist-alias?code=${'$'}{encodeURIComponent(codeInput.value)}&from=${'$'}{encodeURIComponent(aliasFrom.value)}&to=${'$'}{encodeURIComponent(aliasTo.value)}`,
+                {method: 'POST'},
+              );
+              const message = (await response.text()).trim();
+              cleanupResult.textContent = response.ok ? `✓ ${'$'}{message}` : `✗ ${'$'}{message || fallbackReason(response.status)}`;
+              cleanupResult.style.color = response.ok ? '#7df5a5' : '#ffb0b0';
+              if (response.ok) await updateArtists();
+            };
             async function directoryEntries(reader) {
               const entries = [];
               while (true) {
@@ -363,6 +414,7 @@ class UploadServer(
               }
             }
             updateStorage();
+            updateArtists();
           </script>
         </body>
         </html>
@@ -371,6 +423,28 @@ class UploadServer(
     private fun storageJson(): String {
         val storage = StorageStatus.read(musicDirectory)
         return """{"totalBytes":${storage.totalBytes},"availableBytes":${storage.availableBytes},"availableForMusicBytes":${storage.availableForMusicBytes},"musicBytes":${storage.musicBytes},"reserveBytes":${storage.reserveBytes}}"""
+    }
+
+    private fun artistsJson(): String = libraryRepository.artistNames().joinToString(
+        prefix = "[",
+        postfix = "]",
+    ) { (name, count) -> "{\"name\":${jsonString(name)},\"count\":$count}" }
+
+    private fun saveArtistAlias(client: Socket, target: String) {
+        val query = parseQuery(target.substringAfter('?', ""))
+        if (query["code"] != accessCode) {
+            send(client, 403, "Forbidden", "Incorrect access code")
+            return
+        }
+        val alias = query["from"].orEmpty()
+        val canonical = query["to"].orEmpty()
+        runCatching { libraryRepository.saveArtistAlias(alias, canonical) }
+            .onSuccess {
+                send(client, 200, "OK", "$alias will display as ${ArtistNames.display(canonical)}")
+            }
+            .onFailure { error ->
+                send(client, 400, "Bad Request", error.message ?: "Could not save artist correction")
+            }
     }
 
     private fun address(): String? {
@@ -399,6 +473,25 @@ class UploadServer(
             } else {
                 "%.0f MB".format(Locale.US, megabytes)
             }
+        }
+
+        private fun jsonString(value: String): String = buildString {
+            append('"')
+            value.forEach { character ->
+                when (character) {
+                    '"' -> append("\\\"")
+                    '\\' -> append("\\\\")
+                    '\n' -> append("\\n")
+                    '\r' -> append("\\r")
+                    '\t' -> append("\\t")
+                    else -> if (character.code < 0x20) {
+                        append("\\u%04x".format(character.code))
+                    } else {
+                        append(character)
+                    }
+                }
+            }
+            append('"')
         }
 
         private fun readHttpLine(input: BufferedInputStream): String {

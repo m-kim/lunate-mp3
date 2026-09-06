@@ -10,6 +10,8 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Entity(
     tableName = "tracks",
@@ -31,6 +33,12 @@ internal data class TrackEntity(
     val addedAtMs: Long,
 )
 
+@Entity(tableName = "artist_aliases")
+internal data class ArtistAliasEntity(
+    @androidx.room.PrimaryKey val normalizedAlias: String,
+    val canonicalName: String,
+)
+
 @Dao
 internal interface TrackDao {
     @Query("SELECT * FROM tracks")
@@ -50,9 +58,15 @@ internal interface TrackDao {
 
     @Query("DELETE FROM tracks")
     fun deleteAll()
+
+    @Query("SELECT * FROM artist_aliases")
+    fun artistAliases(): List<ArtistAliasEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    fun upsertArtistAlias(alias: ArtistAliasEntity)
 }
 
-@Database(entities = [TrackEntity::class], version = 1, exportSchema = false)
+@Database(entities = [TrackEntity::class, ArtistAliasEntity::class], version = 2, exportSchema = false)
 internal abstract class LibraryDatabase : RoomDatabase() {
     abstract fun trackDao(): TrackDao
 
@@ -65,7 +79,15 @@ internal abstract class LibraryDatabase : RoomDatabase() {
                 context.applicationContext,
                 LibraryDatabase::class.java,
                 "music-library.db",
-            ).build().also { instance = it }
+            ).addMigrations(MIGRATION_1_2).build().also { instance = it }
+        }
+
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `artist_aliases` (`normalizedAlias` TEXT NOT NULL, `canonicalName` TEXT NOT NULL, PRIMARY KEY(`normalizedAlias`))",
+                )
+            }
         }
     }
 }

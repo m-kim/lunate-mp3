@@ -8,7 +8,7 @@ internal class LibraryRepository(context: Context) {
     private val dao = database.trackDao()
     private val musicDirectory = File(context.filesDir, "music").apply { mkdirs() }
 
-    fun cachedTracks(): List<Track> = dao.visible().map(::toTrack)
+    fun cachedTracks(): List<Track> = canonicalize(dao.visible().map(::toTrack))
 
     fun cachedTrackCount(): Int = dao.visibleCount()
 
@@ -38,7 +38,7 @@ internal class LibraryRepository(context: Context) {
             dao.deleteAll()
             dao.upsertAll(indexed)
         }
-        indexed.filter { it.duplicateOf == null }.map(::toTrack)
+        canonicalize(indexed.filter { it.duplicateOf == null }.map(::toTrack))
     }
 
     fun indexUploaded(file: File, contentHash: ByteArray) {
@@ -50,6 +50,21 @@ internal class LibraryRepository(context: Context) {
             }
             dao.upsert(track.toEntity(hash, duplicate?.fileName))
         }
+    }
+
+    fun artistNames(): List<Pair<String, Int>> = dao.visible()
+        .groupingBy { ArtistNames.display(it.artist) }
+        .eachCount()
+        .entries
+        .sortedBy { it.key.lowercase() }
+        .map { it.key to it.value }
+
+    fun saveArtistAlias(alias: String, canonicalName: String) {
+        val normalizedAlias = ArtistNames.identity(alias)
+        val canonical = ArtistNames.display(canonicalName)
+        require(normalizedAlias.isNotBlank() && canonical.isNotBlank()) { "Artist names cannot be blank" }
+        require(canonical.length <= 160) { "Artist name is too long" }
+        dao.upsertArtistAlias(ArtistAliasEntity(normalizedAlias, canonical))
     }
 
     private fun TrackEntity.matches(file: File): Boolean =
@@ -82,6 +97,11 @@ internal class LibraryRepository(context: Context) {
         durationMs = entity.durationMs,
         addedAtMs = entity.addedAtMs,
     )
+
+    private fun canonicalize(tracks: List<Track>): List<Track> {
+        val aliases = dao.artistAliases().associate { it.normalizedAlias to it.canonicalName }
+        return ArtistNames.canonicalize(tracks, aliases)
+    }
 
     private fun ByteArray.toHex(): String = joinToString("") { "%02x".format(it) }
 

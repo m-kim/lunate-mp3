@@ -2,6 +2,7 @@ package com.galaxywatch.mp3player
 
 import android.media.MediaMetadataRetriever
 import java.io.File
+import java.text.Normalizer
 import java.util.Locale
 
 data class Track(
@@ -121,6 +122,63 @@ internal data class AlbumGroup(
 
 internal data class ArtistGroup(val name: String, val tracks: List<Track>)
 
+internal object ArtistNames {
+    fun display(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFKC)
+        .filterNot { character ->
+            when (Character.getType(character)) {
+                Character.CONTROL.toInt(), Character.FORMAT.toInt(),
+                Character.PRIVATE_USE.toInt() -> true
+                else -> false
+            }
+        }
+        .trim()
+        .replace(Regex("\\s+"), " ")
+
+    fun identity(value: String): String = display(value).lowercase(Locale.ROOT)
+
+    fun canonicalize(tracks: List<Track>, aliases: Map<String, String>): List<Track> {
+        val appearances = tracks.flatMap { listOf(it.artist, it.albumArtist) }
+            .map(::display)
+            .filter(String::isNotBlank)
+            .groupBy(::identity)
+        val canonicalByIdentity = appearances.mapValues { (identity, values) ->
+            aliases[identity]?.let(::display)?.takeIf(String::isNotBlank)
+                ?: preferredDisplay(values)
+        }
+
+        fun canonical(value: String): String {
+            val cleaned = display(value)
+            return aliases[identity(cleaned)]?.let(::display)?.takeIf(String::isNotBlank)
+                ?: canonicalByIdentity[identity(cleaned)]
+                ?: cleaned
+        }
+
+        return tracks.map { track ->
+            track.copy(
+                artist = canonical(track.artist),
+                albumArtist = canonical(track.albumArtist),
+            )
+        }
+    }
+
+    private fun preferredDisplay(values: List<String>): String = values
+        .groupingBy { it }
+        .eachCount()
+        .entries
+        .sortedWith(
+            compareByDescending<Map.Entry<String, Int>> { it.value }
+                .thenBy { unusualCapitalization(it.key) }
+                .thenBy { it.key.lowercase(Locale.ROOT) },
+        )
+        .first()
+        .key
+
+    private fun unusualCapitalization(value: String): Int = value
+        .drop(1)
+        .withIndex()
+        .count { (index, character) -> character.isUpperCase() && value[index].isLetter() }
+}
+
 internal fun groupAlbums(tracks: List<Track>): List<AlbumGroup> = tracks
     .groupBy { it.albumArtist to it.album }
     .map { (identity, albumTracks) ->
@@ -133,8 +191,9 @@ internal fun groupAlbums(tracks: List<Track>): List<AlbumGroup> = tracks
     .sortedWith(compareBy({ it.albumArtist.lowercase(Locale.ROOT) }, { it.title.lowercase(Locale.ROOT) }))
 
 internal fun groupArtists(tracks: List<Track>): List<ArtistGroup> = tracks
-    .groupBy { it.artist }
-    .map { (artist, artistTracks) ->
+    .groupBy { ArtistNames.identity(it.artist) }
+    .map { (_, artistTracks) ->
+        val artist = ArtistNames.canonicalize(artistTracks, emptyMap()).first().artist
         ArtistGroup(artist, sortTracks(artistTracks, SortMode.ARTIST))
     }
     .sortedBy { it.name.lowercase(Locale.ROOT) }
