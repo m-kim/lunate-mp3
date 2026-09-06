@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.viewModels
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -396,9 +397,10 @@ private fun NowPlayingScreen(
             color = Color.White,
             fontSize = 18.sp,
             fontWeight = FontWeight.Bold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
+            maxLines = 1,
+            softWrap = false,
             textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE),
         )
         Text(track?.artist.orEmpty(), color = Color.LightGray, fontSize = 11.sp, maxLines = 1)
         if (track != null) {
