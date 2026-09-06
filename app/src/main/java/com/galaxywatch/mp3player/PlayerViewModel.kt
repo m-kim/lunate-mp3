@@ -45,10 +45,11 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
     private val scanExecutor = Executors.newSingleThreadExecutor()
     private val libraryRepository = LibraryRepository(application)
     private val preferences = application.getSharedPreferences("player", Application.MODE_PRIVATE)
+    private val playbackStateStore = PlaybackStateStore(application)
     private var controllerFuture: ListenableFuture<MediaController>? = null
     private var controller: MediaController? = null
     private var activeQueueIds: List<String> = emptyList()
-    private var activeQueueLabel: String = "All songs"
+    private var activeQueueLabel: String = playbackStateStore.load()?.queueLabel ?: "All songs"
     private var pendingPlayback: PendingPlayback? = null
 
     var state by mutableStateOf(
@@ -108,6 +109,7 @@ class PlayerViewModel(application: Application) : AndroidViewModel(application),
         val playableQueue = queue.distinctBy { it.id }.ifEmpty { listOf(track) }
         activeQueueIds = playableQueue.map { it.id }
         activeQueueLabel = queueLabel
+        playbackStateStore.saveQueueLabel(queueLabel)
         state = state.copy(
             currentTrackId = track.id,
             queueLabel = queueLabel,

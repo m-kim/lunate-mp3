@@ -37,4 +37,5 @@ class UploadRulesTest {
         assertEquals(800L, StorageStatus.uploadCapacity(1_000L, 200L))
         assertEquals(0L, StorageStatus.uploadCapacity(100L, 200L))
     }
+
 }
