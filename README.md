@@ -1,4 +1,4 @@
-# Wrist MP3
+# Lunate MP3
 
 A standalone MP3 and M4A player for Wear OS, designed for the Samsung Galaxy Watch Ultra. Music is stored and played directly on the watch and does not require a phone.
 
